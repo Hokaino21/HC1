@@ -11,9 +11,9 @@ it('imports employees from a csv file', function () {
     Storage::fake('local');
 
     $file = UploadedFile::fake()->createWithContent('employees.csv', implode("\n", [
-        'nik,nama,jabatan,pg,unit,skp expired,fungsi',
-        '1001,Budi Santoso,Supervisor,PG1,Teknik,2026-12-31,Operasional',
-        '1002,Sari Aminah,Officer,PG2,Avsek,31/01/2027,Keamanan',
+        'nik,nama,jabatan,pg,unit,skp expired,fungsi,pas foto(jpg),KTP(pdf),Serifikat Kompetensi Initial Avsec,sertifikat refresher terakhir,ijazah pendidikan terakhir,buku lisensi,daftar riwayat hidup,skck,background Chech,Nomor WA',
+        '1001,Budi Santoso,Supervisor,PG1,Teknik,2026-12-31,Operasional,budi.jpg,budi-ktp.pdf,budi-initial.pdf,budi-refresher.pdf,budi-ijazah.pdf,budi-lisensi.pdf,budi-cv.pdf,budi-skck.pdf,clear,628123456789',
+        '1002,Sari Aminah,Officer,PG2,Avsek,31/01/2027,Keamanan,,,,,,,,,,',
     ]));
 
     $this->post(route('employees.import'), [
@@ -28,6 +28,16 @@ it('imports employees from a csv file', function () {
         'unit' => 'teknik',
         'skp_expired' => '2026-12-31 00:00:00',
         'function_category' => 'Operasional',
+        'photo_jpg' => 'budi.jpg',
+        'ktp_pdf' => 'budi-ktp.pdf',
+        'initial_avsec_competency_certificate' => 'budi-initial.pdf',
+        'latest_refresher_certificate' => 'budi-refresher.pdf',
+        'latest_education_certificate' => 'budi-ijazah.pdf',
+        'license_book' => 'budi-lisensi.pdf',
+        'curriculum_vitae' => 'budi-cv.pdf',
+        'skck' => 'budi-skck.pdf',
+        'background_check' => 'clear',
+        'whatsapp_number' => '628123456789',
     ]);
 
     assertDatabaseHas('employees', [
@@ -35,6 +45,9 @@ it('imports employees from a csv file', function () {
         'name' => 'Sari Aminah',
         'unit' => 'avsek',
         'skp_expired' => '2027-01-31 00:00:00',
+        'photo_jpg' => null,
+        'ktp_pdf' => null,
+        'whatsapp_number' => null,
     ]);
 });
 
@@ -53,6 +66,7 @@ it('imports employees from an xlsx file', function () {
         'unit' => 'pkpk',
         'skp_expired' => '2027-03-15 00:00:00',
         'function_category' => 'Rescue',
+        'photo_jpg' => 'https://example.com/foto-rina.jpg',
     ]);
 });
 
@@ -87,20 +101,22 @@ it('updates employees when importing the same nik again', function () {
     ]);
 });
 
-it('filters employees by unit on the home page', function () {
+it('filters employees by unit or function on the home page', function () {
     Employee::query()->create([
         'nik' => '1001',
         'name' => 'Budi Santoso',
-        'unit' => 'teknik',
+        'unit' => 'unit maintenance',
+        'function_category' => 'TEKNIK',
     ]);
 
     Employee::query()->create([
         'nik' => '1002',
         'name' => 'Sari Aminah',
         'unit' => 'avsek',
+        'function_category' => 'Keamanan',
     ]);
 
-    $this->get(route('home', ['unit' => 'teknik']))
+    $this->get(route('home', ['unit' => 'Teknik']))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('welcome')
@@ -133,8 +149,9 @@ function employeeWorkbookContent(): string
     $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
     $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Employees" sheetId="1" r:id="rId1"/></sheets></workbook>');
     $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>');
-    $zip->addFromString('xl/sharedStrings.xml', '<?xml version="1.0" encoding="UTF-8"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="14" uniqueCount="14"><si><t>nik</t></si><si><t>nama</t></si><si><t>jabatan</t></si><si><t>pg</t></si><si><t>unit</t></si><si><t>skp expired</t></si><si><t>fungsi</t></si><si><t>2001</t></si><si><t>Rina Putri</t></si><si><t>Staff</t></si><si><t>PG3</t></si><si><t>PKPK</t></si><si><t>2027-03-15</t></si><si><t>Rescue</t></si></sst>');
-    $zip->addFromString('xl/worksheets/sheet1.xml', '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c><c r="D1" t="s"><v>3</v></c><c r="E1" t="s"><v>4</v></c><c r="F1" t="s"><v>5</v></c><c r="G1" t="s"><v>6</v></c></row><row r="2"><c r="A2" t="s"><v>7</v></c><c r="B2" t="s"><v>8</v></c><c r="C2" t="s"><v>9</v></c><c r="D2" t="s"><v>10</v></c><c r="E2" t="s"><v>11</v></c><c r="F2" t="s"><v>12</v></c><c r="G2" t="s"><v>13</v></c></row></sheetData></worksheet>');
+    $zip->addFromString('xl/sharedStrings.xml', '<?xml version="1.0" encoding="UTF-8"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="16" uniqueCount="16"><si><t>nik</t></si><si><t>nama</t></si><si><t>jabatan</t></si><si><t>pg</t></si><si><t>unit</t></si><si><t>skp expired</t></si><si><t>fungsi</t></si><si><t>2001</t></si><si><t>Rina Putri</t></si><si><t>Staff</t></si><si><t>PG3</t></si><si><t>PKPK</t></si><si><t>2027-03-15</t></si><si><t>Rescue</t></si><si><t>pas foto(jpg)</t></si><si><t>link tes</t></si></sst>');
+    $zip->addFromString('xl/worksheets/_rels/sheet1.xml.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/foto-rina.jpg" TargetMode="External"/></Relationships>');
+    $zip->addFromString('xl/worksheets/sheet1.xml', '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c><c r="D1" t="s"><v>3</v></c><c r="E1" t="s"><v>4</v></c><c r="F1" t="s"><v>5</v></c><c r="G1" t="s"><v>6</v></c><c r="H1" t="s"><v>14</v></c></row><row r="2"><c r="A2" t="s"><v>7</v></c><c r="B2" t="s"><v>8</v></c><c r="C2" t="s"><v>9</v></c><c r="D2" t="s"><v>10</v></c><c r="E2" t="s"><v>11</v></c><c r="F2" t="s"><v>12</v></c><c r="G2" t="s"><v>13</v></c><c r="H2" t="s"><v>15</v></c></row></sheetData><hyperlinks><hyperlink ref="H2" r:id="rId3"/></hyperlinks></worksheet>');
     $zip->close();
 
     $content = file_get_contents($path);

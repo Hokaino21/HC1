@@ -15,10 +15,38 @@ use Illuminate\Support\Carbon;
  * @property string|null $unit
  * @property Carbon|null $skp_expired
  * @property string|null $function_category
+ * @property string|null $photo_jpg
+ * @property string|null $ktp_pdf
+ * @property string|null $initial_avsec_competency_certificate
+ * @property string|null $latest_refresher_certificate
+ * @property string|null $latest_education_certificate
+ * @property string|null $license_book
+ * @property string|null $curriculum_vitae
+ * @property string|null $skck
+ * @property string|null $background_check
+ * @property string|null $whatsapp_number
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['nik', 'name', 'position', 'pg', 'unit', 'skp_expired', 'function_category'])]
+#[Fillable([
+    'nik',
+    'name',
+    'position',
+    'pg',
+    'unit',
+    'skp_expired',
+    'function_category',
+    'photo_jpg',
+    'ktp_pdf',
+    'initial_avsec_competency_certificate',
+    'latest_refresher_certificate',
+    'latest_education_certificate',
+    'license_book',
+    'curriculum_vitae',
+    'skck',
+    'background_check',
+    'whatsapp_number',
+])]
 class Employee extends Model
 {
     /**

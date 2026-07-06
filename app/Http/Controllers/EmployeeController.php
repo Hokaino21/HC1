@@ -17,13 +17,32 @@ use ZipArchive;
 
 class EmployeeController extends Controller
 {
+    /**
+     * @var array<int, string>
+     */
+    private const EMPLOYEE_DOCUMENT_COLUMNS = [
+        'photo_jpg',
+        'ktp_pdf',
+        'initial_avsec_competency_certificate',
+        'latest_refresher_certificate',
+        'latest_education_certificate',
+        'license_book',
+        'curriculum_vitae',
+        'skck',
+        'background_check',
+        'whatsapp_number',
+    ];
+
     public function index(Request $request): Response
     {
         $unit = Str::of($request->string('unit')->toString())->lower()->toString();
         $unit = in_array($unit, ['teknik', 'avsek', 'pkpk'], true) ? $unit : null;
 
         $employees = Employee::query()
-            ->when($unit, fn ($query) => $query->where('unit', $unit))
+            ->when($unit, fn ($query) => $query->where(fn ($query) => $query
+                ->whereRaw('LOWER(unit) = ?', [$unit])
+                ->orWhereRaw('LOWER(function_category) = ?', [$unit])
+            ))
             ->orderBy('id')
             ->get()
             ->map(fn (Employee $employee): array => [
@@ -36,6 +55,7 @@ class EmployeeController extends Controller
                 'unit_label' => $employee->unit ? Str::of($employee->unit)->upper()->toString() : null,
                 'skp_expired' => $employee->skp_expired?->format('Y-m-d'),
                 'function_category' => $employee->function_category,
+                ...$this->employeeDocumentData($employee),
             ]);
 
         return Inertia::render('welcome', [
@@ -69,7 +89,7 @@ class EmployeeController extends Controller
     }
 
     /**
-     * @return array<int, array{nik: string, name: string, position: ?string, pg: ?string, unit: ?string, skp_expired: ?CarbonImmutable, function_category: ?string}>
+     * @return array<int, array<string, CarbonImmutable|string|null>>
      */
     private function readEmployeeRows(string $path, string $extension): array
     {
@@ -111,6 +131,7 @@ class EmployeeController extends Controller
                 'unit' => $unit ? Str::of($unit)->lower()->toString() : null,
                 'skp_expired' => $this->parseDate($this->cellValue($values, $columns['skp_expired'] ?? null), $lineNumber + 2),
                 'function_category' => $this->cellValue($values, $columns['function_category'] ?? null),
+                ...$this->employeeDocumentCellValues($values, $columns),
             ];
         }
 
@@ -121,6 +142,28 @@ class EmployeeController extends Controller
         }
 
         return $rows;
+    }
+
+    /**
+     * @return array<string, string|null>
+     */
+    private function employeeDocumentData(Employee $employee): array
+    {
+        return collect(self::EMPLOYEE_DOCUMENT_COLUMNS)
+            ->mapWithKeys(fn (string $column): array => [$column => $employee->{$column}])
+            ->all();
+    }
+
+    /**
+     * @param  array<int, string|null>  $values
+     * @param  array<string, int>  $columns
+     * @return array<string, string|null>
+     */
+    private function employeeDocumentCellValues(array $values, array $columns): array
+    {
+        return collect(self::EMPLOYEE_DOCUMENT_COLUMNS)
+            ->mapWithKeys(fn (string $column): array => [$column => $this->cellValue($values, $columns[$column] ?? null)])
+            ->all();
     }
 
     /**
@@ -163,15 +206,18 @@ class EmployeeController extends Controller
         }
 
         $sharedStrings = $this->readSharedStrings($zip);
-        $zip->close();
-
         $sheet = simplexml_load_string($sheetXml);
 
         if (! $sheet instanceof SimpleXMLElement) {
+            $zip->close();
+
             throw ValidationException::withMessages([
                 'employees_file' => 'Sheet XLSX tidak bisa dibaca.',
             ]);
         }
+
+        $hyperlinks = $this->readWorksheetHyperlinks($zip, $sheet);
+        $zip->close();
 
         $rows = [];
 
@@ -181,7 +227,7 @@ class EmployeeController extends Controller
             foreach ($row->c as $cell) {
                 $cellReference = (string) $cell['r'];
                 $columnIndex = $this->columnIndexFromCellReference($cellReference);
-                $values[$columnIndex] = $this->xlsxCellValue($cell, $sharedStrings);
+                $values[$columnIndex] = $this->xlsxCellValue($cell, $sharedStrings, $hyperlinks);
             }
 
             if ($values !== []) {
@@ -191,6 +237,129 @@ class EmployeeController extends Controller
         }
 
         return $rows;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function readWorksheetHyperlinks(ZipArchive $zip, SimpleXMLElement $sheet): array
+    {
+        if (! isset($sheet->hyperlinks)) {
+            return [];
+        }
+
+        $relationships = $this->readWorksheetRelationships($zip);
+        $hyperlinks = [];
+
+        foreach ($sheet->hyperlinks->hyperlink as $hyperlink) {
+            $reference = (string) $hyperlink['ref'];
+            $relationshipAttributes = $hyperlink->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships');
+            $relationshipId = (string) ($relationshipAttributes['id'] ?? '');
+            $target = $relationships[$relationshipId] ?? null;
+
+            if ($target === null) {
+                $location = (string) $hyperlink['location'];
+                $target = $location !== '' ? '#'.$location : null;
+            }
+
+            if ($reference === '' || $target === null) {
+                continue;
+            }
+
+            foreach ($this->cellReferencesFromRange($reference) as $cellReference) {
+                $hyperlinks[$cellReference] = $target;
+            }
+        }
+
+        return $hyperlinks;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function readWorksheetRelationships(ZipArchive $zip): array
+    {
+        $relationshipsXml = $zip->getFromName('xl/worksheets/_rels/sheet1.xml.rels');
+
+        if ($relationshipsXml === false) {
+            return [];
+        }
+
+        $relationships = simplexml_load_string($relationshipsXml);
+
+        if (! $relationships instanceof SimpleXMLElement) {
+            return [];
+        }
+
+        $targets = [];
+
+        foreach ($relationships->Relationship as $relationship) {
+            $id = (string) $relationship['Id'];
+            $target = (string) $relationship['Target'];
+
+            if ($id !== '' && $target !== '') {
+                $targets[$id] = $target;
+            }
+        }
+
+        return $targets;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function cellReferencesFromRange(string $reference): array
+    {
+        if (! str_contains($reference, ':')) {
+            return [$reference];
+        }
+
+        [$startReference, $endReference] = explode(':', $reference, 2);
+        $start = $this->cellCoordinate($startReference);
+        $end = $this->cellCoordinate($endReference);
+
+        if ($start === null || $end === null) {
+            return [$reference];
+        }
+
+        $references = [];
+
+        for ($row = $start['row']; $row <= $end['row']; $row++) {
+            for ($column = $start['column']; $column <= $end['column']; $column++) {
+                $references[] = $this->columnNameFromIndex($column).$row;
+            }
+        }
+
+        return $references;
+    }
+
+    /**
+     * @return array{column: int, row: int}|null
+     */
+    private function cellCoordinate(string $cellReference): ?array
+    {
+        if (! preg_match('/^([A-Z]+)(\d+)$/i', $cellReference, $matches)) {
+            return null;
+        }
+
+        return [
+            'column' => $this->columnIndexFromCellReference($cellReference),
+            'row' => (int) $matches[2],
+        ];
+    }
+
+    private function columnNameFromIndex(int $columnIndex): string
+    {
+        $name = '';
+        $columnNumber = $columnIndex + 1;
+
+        while ($columnNumber > 0) {
+            $modulo = ($columnNumber - 1) % 26;
+            $name = chr(65 + $modulo).$name;
+            $columnNumber = intdiv($columnNumber - $modulo, 26);
+        }
+
+        return $name;
     }
 
     /**
@@ -250,6 +419,26 @@ class EmployeeController extends Controller
             'fungsi' => 'function_category',
             'kategori' => 'function_category',
             'function' => 'function_category',
+            'pasfotojpg' => 'photo_jpg',
+            'fotojpg' => 'photo_jpg',
+            'ktppdf' => 'ktp_pdf',
+            'serifikatkompetensiinitialavsec' => 'initial_avsec_competency_certificate',
+            'sertifikatkompetensiinitialavsec' => 'initial_avsec_competency_certificate',
+            'kompetensiinitialavsec' => 'initial_avsec_competency_certificate',
+            'sertifikatrefresherterakhir' => 'latest_refresher_certificate',
+            'refresherterakhir' => 'latest_refresher_certificate',
+            'ijazahpendidikanterakhir' => 'latest_education_certificate',
+            'pendidikanterakhir' => 'latest_education_certificate',
+            'bukulisensi' => 'license_book',
+            'lisensi' => 'license_book',
+            'daftarriwayathidup' => 'curriculum_vitae',
+            'cv' => 'curriculum_vitae',
+            'skck' => 'skck',
+            'backgroundchech' => 'background_check',
+            'backgroundcheck' => 'background_check',
+            'nomorwa' => 'whatsapp_number',
+            'nowa' => 'whatsapp_number',
+            'whatsapp' => 'whatsapp_number',
         ];
 
         $columns = [];
@@ -297,8 +486,18 @@ class EmployeeController extends Controller
     /**
      * @param  array<int, string>  $sharedStrings
      */
-    private function xlsxCellValue(SimpleXMLElement $cell, array $sharedStrings): ?string
+    /**
+     * @param  array<int, string>  $sharedStrings
+     * @param  array<string, string>  $hyperlinks
+     */
+    private function xlsxCellValue(SimpleXMLElement $cell, array $sharedStrings, array $hyperlinks): ?string
     {
+        $cellReference = (string) $cell['r'];
+
+        if ($cellReference !== '' && array_key_exists($cellReference, $hyperlinks)) {
+            return $hyperlinks[$cellReference];
+        }
+
         $type = (string) $cell['t'];
 
         if ($type === 's') {

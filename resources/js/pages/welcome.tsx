@@ -33,6 +33,33 @@ type Employee = {
     unit_label: string | null;
     skp_expired: string | null;
     function_category: string | null;
+    photo_jpg: string | null;
+    ktp_pdf: string | null;
+    initial_avsec_competency_certificate: string | null;
+    latest_refresher_certificate: string | null;
+    latest_education_certificate: string | null;
+    license_book: string | null;
+    curriculum_vitae: string | null;
+    skck: string | null;
+    background_check: string | null;
+    whatsapp_number: string | null;
+};
+
+type EmployeeDocumentColumn = {
+    key: keyof Pick<
+        Employee,
+        | 'photo_jpg'
+        | 'ktp_pdf'
+        | 'initial_avsec_competency_certificate'
+        | 'latest_refresher_certificate'
+        | 'latest_education_certificate'
+        | 'license_book'
+        | 'curriculum_vitae'
+        | 'skck'
+        | 'background_check'
+        | 'whatsapp_number'
+    >;
+    label: string;
 };
 
 type WelcomeProps = {
@@ -83,6 +110,28 @@ const navigationItems: NavigationItem[] = [
     },
 ];
 
+const employeeDocumentColumns: EmployeeDocumentColumn[] = [
+    { key: 'photo_jpg', label: 'Pas Foto (JPG)' },
+    { key: 'ktp_pdf', label: 'KTP (PDF)' },
+    {
+        key: 'initial_avsec_competency_certificate',
+        label: 'Sertifikat Kompetensi Initial Avsec',
+    },
+    {
+        key: 'latest_refresher_certificate',
+        label: 'Sertifikat Refresher Terakhir',
+    },
+    {
+        key: 'latest_education_certificate',
+        label: 'Ijazah Pendidikan Terakhir',
+    },
+    { key: 'license_book', label: 'Buku Lisensi' },
+    { key: 'curriculum_vitae', label: 'Daftar Riwayat Hidup' },
+    { key: 'skck', label: 'SKCK' },
+    { key: 'background_check', label: 'Background Check' },
+    { key: 'whatsapp_number', label: 'Nomor WA' },
+];
+
 const employeeTableColumns = [
     'No',
     'NIK',
@@ -92,6 +141,7 @@ const employeeTableColumns = [
     'Unit',
     'SKP Expired',
     'Fungsi',
+    ...employeeDocumentColumns.map((column) => column.label),
     'Aksi',
 ];
 
@@ -101,6 +151,7 @@ const mandatoryTrainingTableColumns = [
     'Nama',
     'SKP Expired',
     'Fungsi',
+    'Ceklis',
 ];
 
 const mandatoryTrainingRowsPerTable = 25;
@@ -217,13 +268,92 @@ function PlaceholderPanel({ text }: { text: string }) {
 }
 
 function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
+    const [checkedEmployeeIds, setCheckedEmployeeIds] = useState<Set<number>>(
+        () => new Set(),
+    );
     const groupedEmployees = useMemo(
         () => groupEmployeesForMandatoryTraining(employees),
         [employees],
     );
+    const mandatoryEmployeeIds = useMemo(
+        () =>
+            groupedEmployees.flatMap((group) =>
+                group.employees.map((employee) => employee.id),
+            ),
+        [groupedEmployees],
+    );
+    const checkedMandatoryCount = mandatoryEmployeeIds.filter((employeeId) =>
+        checkedEmployeeIds.has(employeeId),
+    ).length;
+    const isAllMandatoryChecked =
+        mandatoryEmployeeIds.length > 0 &&
+        checkedMandatoryCount === mandatoryEmployeeIds.length;
+
+    function toggleEmployeeCheck(employeeId: number) {
+        setCheckedEmployeeIds((currentIds) => {
+            const nextIds = new Set(currentIds);
+
+            if (nextIds.has(employeeId)) {
+                nextIds.delete(employeeId);
+            } else {
+                nextIds.add(employeeId);
+            }
+
+            return nextIds;
+        });
+    }
+
+    function toggleAllMandatoryChecks() {
+        setCheckedEmployeeIds((currentIds) => {
+            const nextIds = new Set(currentIds);
+
+            if (isAllMandatoryChecked) {
+                mandatoryEmployeeIds.forEach((employeeId) =>
+                    nextIds.delete(employeeId),
+                );
+            } else {
+                mandatoryEmployeeIds.forEach((employeeId) =>
+                    nextIds.add(employeeId),
+                );
+            }
+
+            return nextIds;
+        });
+    }
+
+    function submitMandatoryChecklist() {
+        return;
+    }
 
     return (
         <section className="flex min-h-full flex-col gap-4">
+            {groupedEmployees.length > 0 ? (
+                <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm font-semibold text-slate-600">
+                        {checkedMandatoryCount} dari{' '}
+                        {mandatoryEmployeeIds.length} data diceklis
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm">
+                            <input
+                                type="checkbox"
+                                checked={isAllMandatoryChecked}
+                                onChange={toggleAllMandatoryChecks}
+                                className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
+                            />
+                            Ceklis semua
+                        </label>
+                        <button
+                            type="button"
+                            onClick={submitMandatoryChecklist}
+                            className="inline-flex h-10 items-center justify-center rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6]"
+                        >
+                            Submit
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+
             {groupedEmployees.length > 0 ? (
                 groupedEmployees.map((group) => (
                     <div
@@ -234,7 +364,7 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
                             <div className="flex flex-wrap items-center gap-2">
                                 <span className="rounded-lg bg-white px-3 py-1 text-sm font-semibold text-slate-800 ring-1 ring-slate-200">
                                     SKP Expired:{' '}
-                                    {group.skpExpired ?? 'Belum diisi'}
+                                    {formatSkpExpiryMonthYear(group.skpExpired)}
                                 </span>
                                 <span className="rounded-lg bg-[#4863df]/10 px-3 py-1 text-sm font-semibold text-[#2f4585] ring-1 ring-[#4863df]/20">
                                     Fungsi:{' '}
@@ -288,6 +418,21 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
                                             <td className="px-4 py-3 whitespace-nowrap">
                                                 {employee.function_category ??
                                                     '-'}
+                                            </td>
+                                            <td className="px-4 py-3 text-center whitespace-nowrap">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checkedEmployeeIds.has(
+                                                        employee.id,
+                                                    )}
+                                                    onChange={() =>
+                                                        toggleEmployeeCheck(
+                                                            employee.id,
+                                                        )
+                                                    }
+                                                    aria-label={`Ceklis ${employee.name}`}
+                                                    className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
+                                                />
                                             </td>
                                         </tr>
                                     ))}
@@ -367,7 +512,7 @@ function EmployeeDataView({
         <section className="flex min-h-full flex-col gap-4">
             <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm xl:flex-row xl:items-end xl:justify-between">
                 <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
-                    Filter Unit
+                    Filter Unit/Fungsi
                     <select
                         value={unitFilter}
                         onChange={updateUnitFilter}
@@ -449,7 +594,7 @@ function EmployeeDataView({
 
             <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                 <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1040px] border-collapse text-left text-sm">
+                    <table className="w-full min-w-[2600px] border-collapse text-left text-sm">
                         <thead className="bg-slate-100 text-xs font-semibold text-slate-600 uppercase">
                             <tr>
                                 {employeeTableColumns.map((column) => (
@@ -496,6 +641,18 @@ function EmployeeDataView({
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             {employee.function_category ?? '-'}
                                         </td>
+                                        {employeeDocumentColumns.map(
+                                            (column) => (
+                                                <td
+                                                    key={column.key}
+                                                    className="px-4 py-3 whitespace-nowrap"
+                                                >
+                                                    {formatTableValue(
+                                                        employee[column.key],
+                                                    )}
+                                                </td>
+                                            ),
+                                        )}
                                         <td className="px-4 py-3 text-right whitespace-nowrap">
                                             <button
                                                 type="button"
@@ -527,6 +684,33 @@ function EmployeeDataView({
             </div>
         </section>
     );
+}
+
+function formatTableValue(value: string | null) {
+    const displayValue = value?.trim();
+
+    if (!displayValue) {
+        return '-';
+    }
+
+    if (isClickableUrl(displayValue)) {
+        return (
+            <a
+                href={displayValue}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-[#4863df] underline underline-offset-2 transition hover:text-[#2f4585]"
+            >
+                {displayValue}
+            </a>
+        );
+    }
+
+    return displayValue;
+}
+
+function isClickableUrl(value: string) {
+    return /^https?:\/\//i.test(value);
 }
 
 function SkpExpiryCell({ value }: { value: string | null }) {
@@ -602,6 +786,23 @@ function parseLocalDate(value: string) {
     return new Date(year, month - 1, day);
 }
 
+function formatSkpExpiryMonthYear(value: string | null) {
+    if (!value) {
+        return 'Belum diisi';
+    }
+
+    const date = parseLocalDate(value);
+
+    if (!date) {
+        return value;
+    }
+
+    return new Intl.DateTimeFormat('id-ID', {
+        month: 'long',
+        year: 'numeric',
+    }).format(date);
+}
+
 function groupEmployeesForMandatoryTraining(
     employees: Employee[],
 ): MandatoryTrainingGroup[] {
@@ -623,8 +824,12 @@ function groupEmployeesForMandatoryTraining(
                 return dateComparison;
             }
 
-            const firstFunction = firstEmployee.function_category ?? '';
-            const secondFunction = secondEmployee.function_category ?? '';
+            const firstFunction = normalizeCategoryKey(
+                firstEmployee.function_category,
+            );
+            const secondFunction = normalizeCategoryKey(
+                secondEmployee.function_category,
+            );
             const functionComparison =
                 firstFunction.localeCompare(secondFunction);
 
@@ -637,7 +842,8 @@ function groupEmployeesForMandatoryTraining(
         .forEach((employee) => {
             const skpExpired = employee.skp_expired;
             const functionCategory = employee.function_category;
-            const key = `${skpExpired ?? 'empty'}::${functionCategory ?? 'empty'}`;
+            const functionKey = normalizeCategoryKey(functionCategory);
+            const key = `${skpExpired ?? 'empty'}::${functionKey || 'empty'}`;
             const group = categoryGroups.get(key);
 
             if (group) {
@@ -676,6 +882,10 @@ function groupEmployeesForMandatoryTraining(
             };
         });
     });
+}
+
+function normalizeCategoryKey(value: string | null) {
+    return value?.trim().toLocaleLowerCase('id-ID') ?? '';
 }
 
 function LayoutGridIcon(props: SVGProps<SVGSVGElement>) {
