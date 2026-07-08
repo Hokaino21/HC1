@@ -5,8 +5,10 @@ import type { ChangeEvent, ComponentType, FormEvent, SVGProps } from 'react';
 import {
     destroy,
     store,
+    update,
 } from '@/actions/App/Http/Controllers/EmployeeController';
 import { home } from '@/routes';
+import { exportMandatoryTraining } from '@/routes/employees';
 import { pdf as templateLetterPdf } from '@/routes/template-surat';
 
 type TabId = 'dashboard' | 'karyawan' | 'diklat' | 'template';
@@ -285,6 +287,7 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
     const [classOverrides, setClassOverrides] = useState<Record<number, string>>(
         {},
     );
+    const [batchNames, setBatchNames] = useState<Record<string, string>>({});
     const generatedGroups = useMemo(
         () => groupEmployeesForMandatoryTraining(employees),
         [employees],
@@ -301,19 +304,6 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
         key: group.key,
         label: `Kelas ${group.tableNumber} - ${formatSkpExpiryMonthYear(group.skpExpired)} / ${group.functionCategory ?? 'Belum diisi'}`,
     }));
-    const mandatoryEmployeeIds = useMemo(
-        () =>
-            groupedEmployees.flatMap((group) =>
-                group.employees.map((employee) => employee.id),
-            ),
-        [groupedEmployees],
-    );
-    const checkedMandatoryCount = mandatoryEmployeeIds.filter((employeeId) =>
-        checkedEmployeeIds.has(employeeId),
-    ).length;
-    const isAllMandatoryChecked =
-        mandatoryEmployeeIds.length > 0 &&
-        checkedMandatoryCount === mandatoryEmployeeIds.length;
 
     function toggleEmployeeCheck(employeeId: number) {
         setCheckedEmployeeIds((currentIds) => {
@@ -329,19 +319,25 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
         });
     }
 
-    function toggleAllMandatoryChecks() {
+    function toggleGroupChecks(groupKey: string) {
+        const group = groupedEmployees.find(g => g.key === groupKey);
+
+        if (!group) {
+return;
+}
+
         setCheckedEmployeeIds((currentIds) => {
             const nextIds = new Set(currentIds);
+            const groupIds = group.employees.map(e => e.id);
+            const allChecked = groupIds.every(id => currentIds.has(id));
 
-            if (isAllMandatoryChecked) {
-                mandatoryEmployeeIds.forEach((employeeId) =>
-                    nextIds.delete(employeeId),
-                );
-            } else {
-                mandatoryEmployeeIds.forEach((employeeId) =>
-                    nextIds.add(employeeId),
-                );
-            }
+            groupIds.forEach(id => {
+                if (allChecked) {
+                    nextIds.delete(id);
+                } else {
+                    nextIds.add(id);
+                }
+            });
 
             return nextIds;
         });
@@ -362,39 +358,59 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
         });
     }
 
-    function submitMandatoryChecklist() {
-        return;
+    function handleExportGroup(groupKey: string) {
+        const group = groupedEmployees.find(g => g.key === groupKey);
+
+        if (!group) {
+return;
+}
+
+        const batchName = batchNames[groupKey] || `Kelas-${group.tableNumber}`;
+        const employeeIds = group.employees
+            .filter(e => checkedEmployeeIds.has(e.id))
+            .map(e => e.id);
+
+        if (employeeIds.length === 0) {
+            alert('Pilih minimal satu karyawan untuk diexport');
+
+            return;
+        }
+
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = exportMandatoryTraining.url();
+
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+        if (csrfToken) {
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = '_token';
+            csrfInput.value = csrfToken;
+            form.appendChild(csrfInput);
+        }
+
+        const batchNameInput = document.createElement('input');
+        batchNameInput.type = 'hidden';
+        batchNameInput.name = 'batch_name';
+        batchNameInput.value = batchName;
+        form.appendChild(batchNameInput);
+
+        employeeIds.forEach(id => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'employee_ids[]';
+            input.value = id.toString();
+            form.appendChild(input);
+        });
+
+        document.body.appendChild(form);
+        form.submit();
+        document.body.removeChild(form);
     }
 
     return (
         <section className="flex min-h-full flex-col gap-4">
-            {groupedEmployees.length > 0 ? (
-                <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-sm font-semibold text-slate-600">
-                        {checkedMandatoryCount} dari{' '}
-                        {mandatoryEmployeeIds.length} data diceklis
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                        <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm">
-                            <input
-                                type="checkbox"
-                                checked={isAllMandatoryChecked}
-                                onChange={toggleAllMandatoryChecks}
-                                className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
-                            />
-                            Ceklis semua
-                        </label>
-                        <button
-                            type="button"
-                            onClick={submitMandatoryChecklist}
-                            className="inline-flex h-10 items-center justify-center rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6]"
-                        >
-                            Submit
-                        </button>
-                    </div>
-                </div>
-            ) : null}
-
             {groupedEmployees.length > 0 ? (
                 groupedEmployees.map((group) => {
                     const tableColumns = [
@@ -402,32 +418,67 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
                         'Pindah Kelas',
                         'Ceklis',
                     ];
+                    const groupIds = group.employees.map(e => e.id);
+                    const groupCheckedCount = groupIds.filter(id => checkedEmployeeIds.has(id)).length;
+                    const isAllGroupChecked = groupIds.length > 0 && groupCheckedCount === groupIds.length;
 
                     return (
                         <div
                             key={group.key}
                             className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
                         >
-                            <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className="rounded-lg bg-white px-3 py-1 text-sm font-semibold text-slate-800 ring-1 ring-slate-200">
-                                        SKP Expired:{' '}
-                                        {formatSkpExpiryMonthYear(
-                                            group.skpExpired,
-                                        )}
-                                    </span>
+                            <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-100 px-4 py-3">
+                                <div className="flex flex-wrap items-center gap-3">
                                     <span className="rounded-lg bg-[#4863df]/10 px-3 py-1 text-sm font-semibold text-[#2f4585] ring-1 ring-[#4863df]/20">
                                         Fungsi:{' '}
                                         {group.functionCategory ??
                                             'Belum diisi'}
                                     </span>
+                                    <span className="text-sm font-semibold text-slate-500">
+                                        Kelas {group.tableNumber}/
+                                        {group.totalTables} -{' '}
+                                        {group.employees.length}/
+                                        {mandatoryTrainingRowsPerTable} karyawan
+                                    </span>
                                 </div>
-                                <span className="text-sm font-semibold text-slate-500">
-                                    Kelas {group.tableNumber}/
-                                    {group.totalTables} -{' '}
-                                    {group.employees.length}/
-                                    {mandatoryTrainingRowsPerTable} karyawan
-                                </span>
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+                                        Nama Batch
+                                        <input
+                                            type="text"
+                                            value={batchNames[group.key] || ''}
+                                            onChange={(e) =>
+                                                setBatchNames(prev => ({
+                                                    ...prev,
+                                                    [group.key]: e.target.value
+                                                }))
+                                            }
+                                            placeholder="Masukkan nama batch"
+                                            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                                        />
+                                    </label>
+                                    <div className="text-sm font-semibold text-slate-600">
+                                        {groupCheckedCount} dari{' '}
+                                        {groupIds.length} data diceklis
+                                    </div>
+                                    <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={isAllGroupChecked}
+                                            onChange={() => toggleGroupChecks(group.key)}
+                                            className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
+                                        />
+                                        Ceklis semua
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleExportGroup(group.key)}
+                                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6]"
+                                    >
+                                        <DownloadIcon className="h-4 w-4" />
+                                        Export Excel
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="overflow-x-auto">
@@ -541,9 +592,6 @@ function TemplateLetterView() {
         body: 'HK.201/1/7/BP3C/2026; PJJ.CGR.HCB.0003/DL.06.01/2026',
     });
     const [letter, setLetter] = useState(draft);
-    const selectedTemplate =
-        templateLetterTypes.find((template) => template.id === letter.template) ??
-        templateLetterTypes[0];
     const outputQuery = {
         template: letter.template,
         number: letter.number,
@@ -754,11 +802,50 @@ function EmployeeDataView({
     employees,
     unitFilter,
 }: {
-    employees: Employee[];
-    unitFilter: UnitFilter;
+    employees: Employee[],
+    unitFilter: UnitFilter,
 }) {
     const [uploadInputKey, setUploadInputKey] = useState(0);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+
+    const editForm = useForm<{
+        nik: string;
+        name: string;
+        position: string | null;
+        pg: string | null;
+        unit: string | null;
+        skp_expired: string | null;
+        function_category: string | null;
+        photo_jpg: string | null;
+        ktp_pdf: string | null;
+        initial_avsec_competency_certificate: string | null;
+        latest_refresher_certificate: string | null;
+        latest_education_certificate: string | null;
+        license_book: string | null;
+        curriculum_vitae: string | null;
+        skck: string | null;
+        background_check: string | null;
+        whatsapp_number: string | null;
+    }>({
+        nik: '',
+        name: '',
+        position: null,
+        pg: null,
+        unit: null,
+        skp_expired: null,
+        function_category: null,
+        photo_jpg: null,
+        ktp_pdf: null,
+        initial_avsec_competency_certificate: null,
+        latest_refresher_certificate: null,
+        latest_education_certificate: null,
+        license_book: null,
+        curriculum_vitae: null,
+        skck: null,
+        background_check: null,
+        whatsapp_number: null,
+    });
     const uploadForm = useForm<{ employees_file: File | null }>({
         employees_file: null,
     });
@@ -808,6 +895,50 @@ function EmployeeDataView({
         router.delete(destroy.url(employee.id), {
             preserveScroll: true,
             preserveState: true,
+        });
+    }
+
+    function openEditModal(employee: Employee) {
+        setEditingEmployee(employee);
+        editForm.setData({
+            nik: employee.nik,
+            name: employee.name,
+            position: employee.position,
+            pg: employee.pg,
+            unit: employee.unit,
+            skp_expired: employee.skp_expired,
+            function_category: employee.function_category,
+            photo_jpg: employee.photo_jpg,
+            ktp_pdf: employee.ktp_pdf,
+            initial_avsec_competency_certificate: employee.initial_avsec_competency_certificate,
+            latest_refresher_certificate: employee.latest_refresher_certificate,
+            latest_education_certificate: employee.latest_education_certificate,
+            license_book: employee.license_book,
+            curriculum_vitae: employee.curriculum_vitae,
+            skck: employee.skck,
+            background_check: employee.background_check,
+            whatsapp_number: employee.whatsapp_number,
+        });
+    }
+
+    function closeEditModal() {
+        setEditingEmployee(null);
+        editForm.reset();
+    }
+
+    function handleEditSubmit(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+
+        if (!editingEmployee) {
+return;
+}
+
+        editForm.put(update.url(editingEmployee.id), {
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: () => {
+                closeEditModal();
+            },
         });
     }
 
@@ -958,16 +1089,28 @@ function EmployeeDataView({
                                             ),
                                         )}
                                         <td className="px-4 py-3 text-right whitespace-nowrap">
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    deleteEmployee(employee)
-                                                }
-                                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-500 transition hover:bg-red-50 hover:text-red-600"
-                                                aria-label={`Hapus ${employee.name}`}
-                                            >
-                                                <TrashIcon className="h-4 w-4" />
-                                            </button>
+                                            <div className="flex items-center justify-end gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        openEditModal(employee)
+                                                    }
+                                                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-blue-500 transition hover:bg-blue-50 hover:text-blue-600"
+                                                    aria-label={`Edit ${employee.name}`}
+                                                >
+                                                    <PencilIcon className="h-4 w-4" />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        deleteEmployee(employee)
+                                                    }
+                                                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-500 transition hover:bg-red-50 hover:text-red-600"
+                                                    aria-label={`Hapus ${employee.name}`}
+                                                >
+                                                    <TrashIcon className="h-4 w-4" />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))
@@ -991,6 +1134,14 @@ function EmployeeDataView({
                 <LinkPreviewModal
                     url={previewUrl}
                     onClose={() => setPreviewUrl(null)}
+                />
+            ) : null}
+            {editingEmployee ? (
+                <EditEmployeeModal
+                    employee={editingEmployee}
+                    form={editForm}
+                    onSubmit={handleEditSubmit}
+                    onClose={closeEditModal}
                 />
             ) : null}
         </section>
@@ -1061,6 +1212,353 @@ function LinkPreviewModal({
                         />
                     )}
                 </div>
+            </div>
+        </div>
+    );
+}
+
+function EditEmployeeModal({
+    employee,
+    form,
+    onSubmit,
+    onClose,
+}: {
+    employee: Employee;
+    form: ReturnType<typeof useForm<any>>;
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+    onClose: () => void;
+}) {
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-employee-title"
+        >
+            <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                    <h2
+                        id="edit-employee-title"
+                        className="text-base font-bold text-slate-900"
+                    >
+                        Edit Karyawan: {employee.name}
+                    </h2>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                        aria-label="Tutup"
+                    >
+                        <CloseIcon className="h-5 w-5" />
+                    </button>
+                </div>
+
+                <form onSubmit={onSubmit} className="flex-1 overflow-y-auto p-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="sm:col-span-1">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                NIK
+                                <input
+                                    type="text"
+                                    value={form.data.nik}
+                                    onChange={(e) =>
+                                        form.setData('nik', e.target.value)
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                    required
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-1">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Nama
+                                <input
+                                    type="text"
+                                    value={form.data.name}
+                                    onChange={(e) =>
+                                        form.setData('name', e.target.value)
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                    required
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-1">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Jabatan
+                                <input
+                                    type="text"
+                                    value={form.data.position || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'position',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-1">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                PG
+                                <input
+                                    type="text"
+                                    value={form.data.pg || ''}
+                                    onChange={(e) =>
+                                        form.setData('pg', e.target.value || null)
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-1">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Unit
+                                <select
+                                    value={form.data.unit || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'unit',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                >
+                                    <option value="">Pilih Unit</option>
+                                    <option value="teknik">Teknik</option>
+                                    <option value="avsek">Avsek</option>
+                                    <option value="pkpk">PKPK</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-1">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                SKP Expired
+                                <input
+                                    type="date"
+                                    value={form.data.skp_expired || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'skp_expired',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Kategori Fungsi
+                                <input
+                                    type="text"
+                                    value={form.data.function_category || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'function_category',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Pas Foto (URL)
+                                <input
+                                    type="text"
+                                    value={form.data.photo_jpg || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'photo_jpg',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                KTP (URL)
+                                <input
+                                    type="text"
+                                    value={form.data.ktp_pdf || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'ktp_pdf',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Sertifikat Kompetensi Initial Avsek (URL)
+                                <input
+                                    type="text"
+                                    value={form.data.initial_avsec_competency_certificate || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'initial_avsec_competency_certificate',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Sertifikat Refresher Terakhir (URL)
+                                <input
+                                    type="text"
+                                    value={form.data.latest_refresher_certificate || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'latest_refresher_certificate',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Ijazah Pendidikan Terakhir (URL)
+                                <input
+                                    type="text"
+                                    value={form.data.latest_education_certificate || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'latest_education_certificate',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Buku Lisensi (URL)
+                                <input
+                                    type="text"
+                                    value={form.data.license_book || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'license_book',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Curriculum Vitae (URL)
+                                <input
+                                    type="text"
+                                    value={form.data.curriculum_vitae || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'curriculum_vitae',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                SKCK (URL)
+                                <input
+                                    type="text"
+                                    value={form.data.skck || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'skck',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Background Check (URL)
+                                <input
+                                    type="text"
+                                    value={form.data.background_check || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'background_check',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Nomor WhatsApp
+                                <input
+                                    type="text"
+                                    value={form.data.whatsapp_number || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'whatsapp_number',
+                                            e.target.value || null
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+                    </div>
+
+                    <div className="mt-6 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                            Batal
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={form.processing}
+                            className="inline-flex h-10 items-center justify-center rounded-lg bg-blue-500 px-4 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                            {form.processing ? 'Menyimpan...' : 'Simpan'}
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     );
@@ -1517,6 +2015,23 @@ function TrashIcon(props: SVGProps<SVGSVGElement>) {
             <path d="M19 6 18 20a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
             <path d="M10 11v6" />
             <path d="M14 11v6" />
+        </svg>
+    );
+}
+
+function PencilIcon(props: SVGProps<SVGSVGElement>) {
+    return (
+        <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            {...props}
+        >
+            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
         </svg>
     );
 }

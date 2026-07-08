@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\MandatoryTrainingExport;
 use App\Http\Requests\ImportEmployeesRequest;
 use App\Models\Employee;
 use Carbon\CarbonImmutable;
@@ -12,6 +13,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Maatwebsite\Excel\Facades\Excel;
 use SimpleXMLElement;
 use ZipArchive;
 
@@ -86,6 +88,59 @@ class EmployeeController extends Controller
         $employee->delete();
 
         return back()->with('success', 'Data karyawan berhasil dihapus.');
+    }
+
+    public function update(Employee $employee, Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'nik' => 'required|string',
+            'name' => 'required|string',
+            'position' => 'nullable|string',
+            'pg' => 'nullable|string',
+            'unit' => 'nullable|string',
+            'skp_expired' => 'nullable|date',
+            'function_category' => 'nullable|string',
+            'photo_jpg' => 'nullable|string',
+            'ktp_pdf' => 'nullable|string',
+            'initial_avsec_competency_certificate' => 'nullable|string',
+            'latest_refresher_certificate' => 'nullable|string',
+            'latest_education_certificate' => 'nullable|string',
+            'license_book' => 'nullable|string',
+            'curriculum_vitae' => 'nullable|string',
+            'skck' => 'nullable|string',
+            'background_check' => 'nullable|string',
+            'whatsapp_number' => 'nullable|string',
+        ]);
+
+        $employee->update($validated);
+
+        return back()->with('success', 'Data karyawan berhasil diperbarui.');
+    }
+
+    public function exportMandatoryTraining(Request $request)
+    {
+        $validated = $request->validate([
+            'batch_name' => 'required|string',
+            'employee_ids' => 'required|array',
+            'employee_ids.*' => 'integer|exists:employees,id',
+        ]);
+
+        $employees = Employee::whereIn('id', $validated['employee_ids'])->get();
+
+        $data = $employees->map(function (Employee $employee, int $index) {
+            return [
+                $index + 1,
+                $employee->nik,
+                $employee->name,
+                $employee->skp_expired?->format('Y-m-d') ?? '',
+                $employee->function_category ?? '',
+            ];
+        })->toArray();
+
+        return Excel::download(
+            new MandatoryTrainingExport($data, $validated['batch_name']),
+            Str::slug($validated['batch_name']) . '.xlsx'
+        );
     }
 
     /**
