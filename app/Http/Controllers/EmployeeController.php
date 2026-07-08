@@ -15,6 +15,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 use Maatwebsite\Excel\Facades\Excel;
 use SimpleXMLElement;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use ZipArchive;
 
 class EmployeeController extends Controller
@@ -117,7 +118,7 @@ class EmployeeController extends Controller
         return back()->with('success', 'Data karyawan berhasil diperbarui.');
     }
 
-    public function exportMandatoryTraining(Request $request)
+    public function exportMandatoryTraining(Request $request): BinaryFileResponse
     {
         $validated = $request->validate([
             'batch_name' => 'required|string',
@@ -139,7 +140,7 @@ class EmployeeController extends Controller
 
         return Excel::download(
             new MandatoryTrainingExport($data, $validated['batch_name']),
-            Str::slug($validated['batch_name']) . '.xlsx'
+            Str::slug($validated['batch_name']).'.xlsx'
         );
     }
 
