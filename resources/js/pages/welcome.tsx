@@ -1,20 +1,17 @@
+import { Head, router, useForm } from '@inertiajs/react';
+import { useMemo, useState } from 'react';
+import type { ChangeEvent, ComponentType, FormEvent, SVGProps } from 'react';
+
 import {
     destroy,
     store,
 } from '@/actions/App/Http/Controllers/EmployeeController';
 import { home } from '@/routes';
-import { Head, router, useForm } from '@inertiajs/react';
-import {
-    type ChangeEvent,
-    type ComponentType,
-    type FormEvent,
-    type SVGProps,
-    useMemo,
-    useState,
-} from 'react';
+import { pdf as templateLetterPdf } from '@/routes/template-surat';
 
-type TabId = 'dashboard' | 'karyawan' | 'diklat';
+type TabId = 'dashboard' | 'karyawan' | 'diklat' | 'template';
 type UnitFilter = '' | 'teknik' | 'avsek' | 'pkpk';
+type TemplateLetterType = 'bp3' | 'ppic';
 
 type NavigationItem = {
     id: TabId;
@@ -89,6 +86,11 @@ type MandatoryTrainingGroup = {
     totalCategoryEmployees: number;
 };
 
+const templateLetterTypes: Array<{ id: TemplateLetterType; label: string }> = [
+    { id: 'bp3', label: 'BP3' },
+    { id: 'ppic', label: 'PPIC' },
+];
+
 const navigationItems: NavigationItem[] = [
     {
         id: 'dashboard',
@@ -105,8 +107,14 @@ const navigationItems: NavigationItem[] = [
     {
         id: 'diklat',
         title: 'Daftar Diklat Mandatory',
-        icon: FileTextIcon,
+        icon: GraduationCapIcon,
         placeholder: 'Konten Daftar Diklat Mandatory akan ditampilkan di sini',
+    },
+    {
+        id: 'template',
+        title: 'Template Surat',
+        icon: FileTextIcon,
+        placeholder: 'Konten Template Surat akan ditampilkan di sini',
     },
 ];
 
@@ -145,13 +153,12 @@ const employeeTableColumns = [
     'Aksi',
 ];
 
-const mandatoryTrainingTableColumns = [
+const mandatoryTrainingBaseColumns = [
     'No',
     'NIK',
     'Nama',
     'SKP Expired',
     'Fungsi',
-    'Ceklis',
 ];
 
 const mandatoryTrainingRowsPerTable = 25;
@@ -174,7 +181,7 @@ export default function Welcome({
 
     return (
         <>
-            <Head title="Sistem Dashboard HR" />
+            <Head title="Injourney Airports" />
 
             <div className="flex h-screen w-screen overflow-hidden bg-white text-slate-800">
                 <aside
@@ -183,12 +190,14 @@ export default function Welcome({
                         isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
                     ].join(' ')}
                 >
-                    <div className="flex h-20 items-center gap-3 border-b border-white/10 px-6">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-lg font-bold text-[#2f4585]">
-                            API
-                        </div>
+                    <div className="flex h-20 items-center gap-3 border-b border-white/15 bg-[#253a73] px-6 shadow-[inset_0_-1px_0_rgba(255,255,255,0.05)]">
+                        <img
+                            src="/icon_API.png"
+                            alt="API"
+                            className="h-10 w-10 rounded-lg object-contain shadow-sm ring-1 ring-white/20"
+                        />
                         <span className="text-xl font-bold tracking-wide text-white">
-                            HCD
+                            HC Development
                         </span>
                     </div>
 
@@ -249,6 +258,8 @@ export default function Welcome({
                             />
                         ) : activeTab === 'diklat' ? (
                             <MandatoryTrainingView employees={employees} />
+                        ) : activeTab === 'template' ? (
+                            <TemplateLetterView />
                         ) : (
                             <PlaceholderPanel text={activeItem.placeholder} />
                         )}
@@ -271,10 +282,25 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
     const [checkedEmployeeIds, setCheckedEmployeeIds] = useState<Set<number>>(
         () => new Set(),
     );
-    const groupedEmployees = useMemo(
+    const [classOverrides, setClassOverrides] = useState<Record<number, string>>(
+        {},
+    );
+    const generatedGroups = useMemo(
         () => groupEmployeesForMandatoryTraining(employees),
         [employees],
     );
+    const baseEmployeeClassKeys = useMemo(
+        () => buildEmployeeClassKeyMap(generatedGroups),
+        [generatedGroups],
+    );
+    const groupedEmployees = useMemo(
+        () => applyMandatoryTrainingClassOverrides(generatedGroups, classOverrides),
+        [classOverrides, generatedGroups],
+    );
+    const classOptions = groupedEmployees.map((group) => ({
+        key: group.key,
+        label: `Kelas ${group.tableNumber} - ${formatSkpExpiryMonthYear(group.skpExpired)} / ${group.functionCategory ?? 'Belum diisi'}`,
+    }));
     const mandatoryEmployeeIds = useMemo(
         () =>
             groupedEmployees.flatMap((group) =>
@@ -321,6 +347,21 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
         });
     }
 
+    function moveEmployeeToClass(employeeId: number, targetClassKey: string) {
+        setClassOverrides((currentOverrides) => {
+            const nextOverrides = { ...currentOverrides };
+            const baseClassKey = baseEmployeeClassKeys.get(employeeId);
+
+            if (!baseClassKey || targetClassKey === baseClassKey) {
+                delete nextOverrides[employeeId];
+            } else {
+                nextOverrides[employeeId] = targetClassKey;
+            }
+
+            return nextOverrides;
+        });
+    }
+
     function submitMandatoryChecklist() {
         return;
     }
@@ -355,35 +396,45 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
             ) : null}
 
             {groupedEmployees.length > 0 ? (
-                groupedEmployees.map((group) => (
-                    <div
-                        key={group.key}
-                        className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
-                    >
-                        <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span className="rounded-lg bg-white px-3 py-1 text-sm font-semibold text-slate-800 ring-1 ring-slate-200">
-                                    SKP Expired:{' '}
-                                    {formatSkpExpiryMonthYear(group.skpExpired)}
-                                </span>
-                                <span className="rounded-lg bg-[#4863df]/10 px-3 py-1 text-sm font-semibold text-[#2f4585] ring-1 ring-[#4863df]/20">
-                                    Fungsi:{' '}
-                                    {group.functionCategory ?? 'Belum diisi'}
+                groupedEmployees.map((group) => {
+                    const tableColumns = [
+                        ...mandatoryTrainingBaseColumns,
+                        'Pindah Kelas',
+                        'Ceklis',
+                    ];
+
+                    return (
+                        <div
+                            key={group.key}
+                            className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                        >
+                            <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="rounded-lg bg-white px-3 py-1 text-sm font-semibold text-slate-800 ring-1 ring-slate-200">
+                                        SKP Expired:{' '}
+                                        {formatSkpExpiryMonthYear(
+                                            group.skpExpired,
+                                        )}
+                                    </span>
+                                    <span className="rounded-lg bg-[#4863df]/10 px-3 py-1 text-sm font-semibold text-[#2f4585] ring-1 ring-[#4863df]/20">
+                                        Fungsi:{' '}
+                                        {group.functionCategory ??
+                                            'Belum diisi'}
+                                    </span>
+                                </div>
+                                <span className="text-sm font-semibold text-slate-500">
+                                    Kelas {group.tableNumber}/
+                                    {group.totalTables} -{' '}
+                                    {group.employees.length}/
+                                    {mandatoryTrainingRowsPerTable} karyawan
                                 </span>
                             </div>
-                            <span className="text-sm font-semibold text-slate-500">
-                                Tabel {group.tableNumber}/{group.totalTables} -{' '}
-                                {group.employees.length} dari{' '}
-                                {group.totalCategoryEmployees} karyawan
-                            </span>
-                        </div>
 
-                        <div className="overflow-x-auto">
-                            <table className="w-full min-w-[720px] border-collapse text-left text-sm">
-                                <thead className="bg-white text-xs font-semibold text-slate-500 uppercase">
-                                    <tr>
-                                        {mandatoryTrainingTableColumns.map(
-                                            (column) => (
+                            <div className="overflow-x-auto">
+                                <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+                                    <thead className="bg-white text-xs font-semibold text-slate-500 uppercase">
+                                        <tr>
+                                            {tableColumns.map((column) => (
                                                 <th
                                                     key={column}
                                                     scope="col"
@@ -391,63 +442,242 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
                                                 >
                                                     {column}
                                                 </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {group.employees.map(
+                                            (employee, index) => (
+                                                <tr
+                                                    key={employee.id}
+                                                    className="text-slate-700 hover:bg-slate-50"
+                                                >
+                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                        {index + 1}
+                                                    </td>
+                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                        {employee.nik}
+                                                    </td>
+                                                    <td className="px-4 py-3 font-medium whitespace-nowrap text-slate-900">
+                                                        {employee.name}
+                                                    </td>
+                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                        <SkpExpiryCell
+                                                            value={
+                                                                employee.skp_expired
+                                                            }
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                        {employee.function_category ??
+                                                            '-'}
+                                                    </td>
+                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                        <select
+                                                            value={group.key}
+                                                            onChange={(event) =>
+                                                                moveEmployeeToClass(
+                                                                    employee.id,
+                                                                    event.target
+                                                                        .value,
+                                                                )
+                                                            }
+                                                            className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm font-medium text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                                                            aria-label={`Pindah kelas ${employee.name}`}
+                                                        >
+                                                            {classOptions.map(
+                                                                (option) => (
+                                                                    <option
+                                                                        key={
+                                                                            option.key
+                                                                        }
+                                                                        value={
+                                                                            option.key
+                                                                        }
+                                                                    >
+                                                                        {
+                                                                            option.label
+                                                                        }
+                                                                    </option>
+                                                                ),
+                                                            )}
+                                                        </select>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={checkedEmployeeIds.has(
+                                                                employee.id,
+                                                            )}
+                                                            onChange={() =>
+                                                                toggleEmployeeCheck(
+                                                                    employee.id,
+                                                                )
+                                                            }
+                                                            aria-label={`Ceklis ${employee.name}`}
+                                                            className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
+                                                        />
+                                                    </td>
+                                                </tr>
                                             ),
                                         )}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {group.employees.map((employee, index) => (
-                                        <tr
-                                            key={employee.id}
-                                            className="text-slate-700 hover:bg-slate-50"
-                                        >
-                                            <td className="px-4 py-3 whitespace-nowrap">
-                                                {index + 1}
-                                            </td>
-                                            <td className="px-4 py-3 whitespace-nowrap">
-                                                {employee.nik}
-                                            </td>
-                                            <td className="px-4 py-3 font-medium whitespace-nowrap text-slate-900">
-                                                {employee.name}
-                                            </td>
-                                            <td className="px-4 py-3 whitespace-nowrap">
-                                                <SkpExpiryCell
-                                                    value={employee.skp_expired}
-                                                />
-                                            </td>
-                                            <td className="px-4 py-3 whitespace-nowrap">
-                                                {employee.function_category ??
-                                                    '-'}
-                                            </td>
-                                            <td className="px-4 py-3 text-center whitespace-nowrap">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={checkedEmployeeIds.has(
-                                                        employee.id,
-                                                    )}
-                                                    onChange={() =>
-                                                        toggleEmployeeCheck(
-                                                            employee.id,
-                                                        )
-                                                    }
-                                                    aria-label={`Ceklis ${employee.name}`}
-                                                    className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
-                                                />
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                    </div>
-                ))
+                    );
+                })
             ) : (
                 <PlaceholderPanel text="Belum ada data karyawan untuk daftar diklat mandatory." />
             )}
         </section>
     );
 }
+function TemplateLetterView() {
+    const [draft, setDraft] = useState({
+        template: 'bp3' as TemplateLetterType,
+        number: 'BP3/001/PPIC/VII/2026',
+        body: 'Isi surat yang bisa diubah.',
+    });
+    const [letter, setLetter] = useState(draft);
+    const selectedTemplate =
+        templateLetterTypes.find((template) => template.id === letter.template) ??
+        templateLetterTypes[0];
+    const outputQuery = {
+        template: letter.template,
+        number: letter.number,
+        body: letter.body,
+    };
+    const pdfUrl = templateLetterPdf.url({
+        query: outputQuery,
+    });
+    const downloadPdfUrl = templateLetterPdf.url({
+        query: {
+            ...outputQuery,
+            download: true,
+        },
+    });
 
+    function updateTemplate(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        setLetter(draft);
+    }
+
+    return (
+        <section className="flex min-h-full flex-col gap-4">
+            <form
+                onSubmit={updateTemplate}
+                className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]"
+            >
+                <div className="flex flex-col gap-4">
+                    <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                        Pilih Template
+                        <select
+                            value={draft.template}
+                            onChange={(event) =>
+                                setDraft((current) => ({
+                                    ...current,
+                                    template: event.target
+                                        .value as TemplateLetterType,
+                                }))
+                            }
+                            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                        >
+                            {templateLetterTypes.map((template) => (
+                                <option key={template.id} value={template.id}>
+                                    {template.label}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+
+                    <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                        Nomor Surat
+                        <input
+                            type="text"
+                            value={draft.number}
+                            onChange={(event) =>
+                                setDraft((current) => ({
+                                    ...current,
+                                    number: event.target.value,
+                                }))
+                            }
+                            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                        />
+                    </label>
+
+                    <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                        Isi Surat
+                        <textarea
+                            value={draft.body}
+                            onChange={(event) =>
+                                setDraft((current) => ({
+                                    ...current,
+                                    body: event.target.value,
+                                }))
+                            }
+                            rows={8}
+                            className="resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                        />
+                    </label>
+
+                    <div className="flex flex-wrap gap-3">
+                        <button
+                            type="submit"
+                            className="inline-flex h-10 items-center justify-center rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6]"
+                        >
+                            Update Template
+                        </button>
+                        <a
+                            href={pdfUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                        >
+                            <DownloadIcon className="h-4 w-4" />
+                            Preview PDF
+                        </a>
+                        <a
+                            href={downloadPdfUrl}
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                        >
+                            <DownloadIcon className="h-4 w-4" />
+                            Download PDF
+                        </a>
+                    </div>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
+                    <div className="mx-auto min-h-[520px] max-w-2xl rounded-sm bg-white px-10 py-9 text-sm leading-7 text-slate-800 shadow-sm ring-1 ring-slate-200">
+                        <div className="border-b border-slate-300 pb-4 text-center">
+                            <h2 className="text-base font-bold text-slate-900">
+                                {selectedTemplate.label}
+                            </h2>
+                            <p className="text-xs font-semibold text-slate-500">
+                                TEMPLATE SURAT
+                            </p>
+                        </div>
+
+                        <div className="mt-8 grid grid-cols-[92px_1fr] gap-y-2">
+                            <span className="font-semibold">Template</span>
+                            <span>: {selectedTemplate.label}</span>
+                            <span className="font-semibold">Nomor</span>
+                            <span>: {letter.number || '-'}</span>
+                            <span className="font-semibold">Isi</span>
+                            <span className="whitespace-pre-wrap">
+                                : {letter.body || '-'}
+                            </span>
+                        </div>
+
+                        <div className="mt-8 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm font-medium text-slate-500">
+                            BP3 memakai template DOCX dari storage/app/template/BP3.docx lalu dikonversi menjadi PDF untuk preview dan download.
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </section>
+    );
+}
 function EmployeeDataView({
     employees,
     unitFilter,
@@ -456,6 +686,7 @@ function EmployeeDataView({
     unitFilter: UnitFilter;
 }) {
     const [uploadInputKey, setUploadInputKey] = useState(0);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const uploadForm = useForm<{ employees_file: File | null }>({
         employees_file: null,
     });
@@ -649,6 +880,7 @@ function EmployeeDataView({
                                                 >
                                                     {formatTableValue(
                                                         employee[column.key],
+                                                        setPreviewUrl,
                                                     )}
                                                 </td>
                                             ),
@@ -682,11 +914,90 @@ function EmployeeDataView({
                     </table>
                 </div>
             </div>
+
+            {previewUrl ? (
+                <LinkPreviewModal
+                    url={previewUrl}
+                    onClose={() => setPreviewUrl(null)}
+                />
+            ) : null}
         </section>
     );
 }
 
-function formatTableValue(value: string | null) {
+function LinkPreviewModal({
+    url,
+    onClose,
+}: {
+    url: string;
+    onClose: () => void;
+}) {
+    const embeddedUrl = getPreviewEmbedUrl(url);
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="link-preview-title"
+        >
+            <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+                <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                        <h2
+                            id="link-preview-title"
+                            className="text-base font-bold text-slate-900"
+                        >
+                            Preview Dokumen
+                        </h2>
+                        <p className="mt-1 truncate text-sm text-slate-500">
+                            {url}
+                        </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                        <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                            Buka tab baru
+                        </a>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                            aria-label="Tutup preview"
+                        >
+                            <CloseIcon className="h-5 w-5" />
+                        </button>
+                    </div>
+                </div>
+
+                <div className="min-h-[320px] flex-1 bg-slate-100">
+                    {isImagePreviewUrl(url) ? (
+                        <img
+                            src={url}
+                            alt="Preview dokumen"
+                            className="h-full max-h-[72vh] w-full object-contain"
+                        />
+                    ) : (
+                        <iframe
+                            title="Preview dokumen"
+                            src={embeddedUrl}
+                            className="h-[72vh] w-full border-0 bg-white"
+                        />
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function formatTableValue(
+    value: string | null,
+    onPreviewLink?: (url: string) => void,
+) {
     const displayValue = value?.trim();
 
     if (!displayValue) {
@@ -697,8 +1008,14 @@ function formatTableValue(value: string | null) {
         return (
             <a
                 href={displayValue}
-                target="_blank"
-                rel="noreferrer"
+                onClick={(event) => {
+                    if (!onPreviewLink) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    onPreviewLink(displayValue);
+                }}
                 className="font-medium text-[#4863df] underline underline-offset-2 transition hover:text-[#2f4585]"
             >
                 {displayValue}
@@ -711,6 +1028,30 @@ function formatTableValue(value: string | null) {
 
 function isClickableUrl(value: string) {
     return /^https?:\/\//i.test(value);
+}
+
+function isImagePreviewUrl(value: string) {
+    return /\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:[?#].*)?$/i.test(value);
+}
+
+function getPreviewEmbedUrl(value: string) {
+    const driveFileMatch = value.match(
+        /^https?:\/\/drive\.google\.com\/file\/d\/([^/]+)(?:\/[^?]*)?(?:\?.*)?$/i,
+    );
+
+    if (driveFileMatch?.[1]) {
+        return `https://drive.google.com/file/d/${driveFileMatch[1]}/preview`;
+    }
+
+    const driveOpenMatch = value.match(
+        /^https?:\/\/drive\.google\.com\/open\?id=([^&]+)/i,
+    );
+
+    if (driveOpenMatch?.[1]) {
+        return `https://drive.google.com/file/d/${driveOpenMatch[1]}/preview`;
+    }
+
+    return value;
 }
 
 function SkpExpiryCell({ value }: { value: string | null }) {
@@ -814,51 +1155,26 @@ function groupEmployeesForMandatoryTraining(
         >
     >();
 
-    [...employees]
-        .sort((firstEmployee, secondEmployee) => {
-            const firstDate = firstEmployee.skp_expired ?? '9999-12-31';
-            const secondDate = secondEmployee.skp_expired ?? '9999-12-31';
-            const dateComparison = firstDate.localeCompare(secondDate);
+    shuffleEmployees(employees).forEach((employee) => {
+        const skpExpired = employee.skp_expired;
+        const functionCategory = employee.function_category;
+        const functionKey = normalizeCategoryKey(functionCategory);
+        const key = `${skpExpired ?? 'empty'}::${functionKey || 'empty'}`;
+        const group = categoryGroups.get(key);
 
-            if (dateComparison !== 0) {
-                return dateComparison;
-            }
+        if (group) {
+            group.employees.push(employee);
 
-            const firstFunction = normalizeCategoryKey(
-                firstEmployee.function_category,
-            );
-            const secondFunction = normalizeCategoryKey(
-                secondEmployee.function_category,
-            );
-            const functionComparison =
-                firstFunction.localeCompare(secondFunction);
+            return;
+        }
 
-            if (functionComparison !== 0) {
-                return functionComparison;
-            }
-
-            return firstEmployee.name.localeCompare(secondEmployee.name);
-        })
-        .forEach((employee) => {
-            const skpExpired = employee.skp_expired;
-            const functionCategory = employee.function_category;
-            const functionKey = normalizeCategoryKey(functionCategory);
-            const key = `${skpExpired ?? 'empty'}::${functionKey || 'empty'}`;
-            const group = categoryGroups.get(key);
-
-            if (group) {
-                group.employees.push(employee);
-
-                return;
-            }
-
-            categoryGroups.set(key, {
-                key,
-                skpExpired,
-                functionCategory,
-                employees: [employee],
-            });
+        categoryGroups.set(key, {
+            key,
+            skpExpired,
+            functionCategory,
+            employees: [employee],
         });
+    });
 
     return Array.from(categoryGroups.values()).flatMap((group) => {
         const totalTables = Math.ceil(
@@ -884,9 +1200,59 @@ function groupEmployeesForMandatoryTraining(
     });
 }
 
+function shuffleEmployees(employees: Employee[]) {
+    const shuffledEmployees = [...employees];
+
+    for (let index = shuffledEmployees.length - 1; index > 0; index -= 1) {
+        const randomIndex = Math.floor(Math.random() * (index + 1));
+        const currentEmployee = shuffledEmployees[index];
+
+        shuffledEmployees[index] = shuffledEmployees[randomIndex];
+        shuffledEmployees[randomIndex] = currentEmployee;
+    }
+
+    return shuffledEmployees;
+}
+
+function buildEmployeeClassKeyMap(groups: MandatoryTrainingGroup[]) {
+    const employeeClassKeys = new Map<number, string>();
+
+    groups.forEach((group) => {
+        group.employees.forEach((employee) => {
+            employeeClassKeys.set(employee.id, group.key);
+        });
+    });
+
+    return employeeClassKeys;
+}
+
+function applyMandatoryTrainingClassOverrides(
+    groups: MandatoryTrainingGroup[],
+    classOverrides: Record<number, string>,
+): MandatoryTrainingGroup[] {
+    const groupCopies = groups.map((group) => ({
+        ...group,
+        employees: [] as Employee[],
+    }));
+    const groupsByKey = new Map(
+        groupCopies.map((group) => [group.key, group]),
+    );
+
+    groups.forEach((group) => {
+        group.employees.forEach((employee) => {
+            const targetGroup = groupsByKey.get(classOverrides[employee.id]) ??
+                groupsByKey.get(group.key);
+
+            targetGroup?.employees.push(employee);
+        });
+    });
+
+    return groupCopies;
+}
 function normalizeCategoryKey(value: string | null) {
     return value?.trim().toLocaleLowerCase('id-ID') ?? '';
 }
+
 
 function LayoutGridIcon(props: SVGProps<SVGSVGElement>) {
     return (
@@ -945,6 +1311,25 @@ function FileTextIcon(props: SVGProps<SVGSVGElement>) {
             <path d="M10 9H8" />
             <path d="M16 13H8" />
             <path d="M16 17H8" />
+        </svg>
+    );
+}
+
+function GraduationCapIcon(props: SVGProps<SVGSVGElement>) {
+    return (
+        <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            {...props}
+        >
+            <path d="M22 10 12 5 2 10l10 5 10-5Z" />
+            <path d="M6 12v5c3 2 9 2 12 0v-5" />
+            <path d="M22 10v6" />
         </svg>
     );
 }
@@ -1025,6 +1410,24 @@ function AlertTriangleIcon(props: SVGProps<SVGSVGElement>) {
     );
 }
 
+function CloseIcon(props: SVGProps<SVGSVGElement>) {
+    return (
+        <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            {...props}
+        >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+        </svg>
+    );
+}
+
 function TrashIcon(props: SVGProps<SVGSVGElement>) {
     return (
         <svg
@@ -1045,3 +1448,7 @@ function TrashIcon(props: SVGProps<SVGSVGElement>) {
         </svg>
     );
 }
+
+
+
+
