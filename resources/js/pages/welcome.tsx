@@ -536,8 +536,12 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
 function TemplateLetterView() {
     const [draft, setDraft] = useState({
         template: 'bp3' as TemplateLetterType,
-        number: 'BP3/001/PPIC/VII/2026',
-        body: 'Isi surat yang bisa diubah.',
+        number: 'API.17610/DL.06.01/2026/REG I-B',
+        number_pks_1: 'HK.201/1/7/BP3C/2026',
+        number_pks_2: 'PJJ.CGR.HCB.0003/DL.06.01/2026',
+        subject:
+            'Permohonan Pelaksanaan Recurrent Senior Avsec bagi Karyawan Kantor Regional I PT Angkasa Pura Indonesia (Persero)',
+        body: '',
     });
     const [letter, setLetter] = useState(draft);
     const selectedTemplate =
@@ -546,6 +550,9 @@ function TemplateLetterView() {
     const outputQuery = {
         template: letter.template,
         number: letter.number,
+        number_pks_1: letter.number_pks_1,
+        number_pks_2: letter.number_pks_2,
+        subject: letter.subject,
         body: letter.body,
     };
     const pdfUrl = templateLetterPdf.url({
@@ -607,7 +614,61 @@ function TemplateLetterView() {
                     </label>
 
                     <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                        Perihal
+                        <input
+                            type="text"
+                            value={draft.subject}
+                            onChange={(event) =>
+                                setDraft((current) => ({
+                                    ...current,
+                                    subject: event.target.value,
+                                }))
+                            }
+                            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                        />
+                    </label>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                            Nomor PKS 1
+                            <input
+                                type="text"
+                                value={draft.number_pks_1}
+                                placeholder="mis. HK.201/1/7/BP3C/2026"
+                                onChange={(event) =>
+                                    setDraft((current) => ({
+                                        ...current,
+                                        number_pks_1: event.target.value,
+                                    }))
+                                }
+                                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                            />
+                        </label>
+
+                        <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                            Nomor PKS 2
+                            <input
+                                type="text"
+                                value={draft.number_pks_2}
+                                placeholder="mis. PJJ.CGR.HCB.0003/..."
+                                onChange={(event) =>
+                                    setDraft((current) => ({
+                                        ...current,
+                                        number_pks_2: event.target.value,
+                                    }))
+                                }
+                                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                            />
+                        </label>
+                    </div>
+
+                    <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
                         Isi Surat
+                        <p className="text-xs font-normal text-slate-400">
+                            Teks yang diketik di sini akan menggantikan bagian{' '}
+                            <strong>bold</strong> di dokumen. Output download tidak
+                            akan bold.
+                        </p>
                         <textarea
                             value={draft.body}
                             onChange={(event) =>
@@ -616,7 +677,7 @@ function TemplateLetterView() {
                                     body: event.target.value,
                                 }))
                             }
-                            rows={8}
+                            rows={5}
                             className="resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
                         />
                     </label>
@@ -626,7 +687,7 @@ function TemplateLetterView() {
                             type="submit"
                             className="inline-flex h-10 items-center justify-center rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6]"
                         >
-                            Update Template
+                            Generate Surat
                         </button>
                         <a
                             href={pdfUrl}
@@ -639,7 +700,7 @@ function TemplateLetterView() {
                         </a>
                         <a
                             href={downloadPdfUrl}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#4863df]/30 bg-[#4863df]/5 px-4 text-sm font-semibold text-[#4863df] shadow-sm transition hover:bg-[#4863df]/10"
                         >
                             <DownloadIcon className="h-4 w-4" />
                             Download PDF
@@ -649,28 +710,83 @@ function TemplateLetterView() {
 
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
                     <div className="mx-auto min-h-[520px] max-w-2xl rounded-sm bg-white px-10 py-9 text-sm leading-7 text-slate-800 shadow-sm ring-1 ring-slate-200">
-                        <div className="border-b border-slate-300 pb-4 text-center">
-                            <h2 className="text-base font-bold text-slate-900">
-                                {selectedTemplate.label}
-                            </h2>
-                            <p className="text-xs font-semibold text-slate-500">
-                                TEMPLATE SURAT
-                            </p>
+                        {/* Kop Surat */}
+                        <div className="mb-5">
+                            <div className="text-[22px] font-bold leading-tight tracking-tight text-slate-900">
+                                in<span className="text-[#00A99D]">j</span>ourney
+                            </div>
+                            <div className="text-[11px] font-bold tracking-[6px] text-[#00A99D]">
+                                AIRPORTS
+                            </div>
                         </div>
 
-                        <div className="mt-8 grid grid-cols-[92px_1fr] gap-y-2">
-                            <span className="font-semibold">Template</span>
-                            <span>: {selectedTemplate.label}</span>
-                            <span className="font-semibold">Nomor</span>
-                            <span>: {letter.number || '-'}</span>
-                            <span className="font-semibold">Isi</span>
-                            <span className="whitespace-pre-wrap">
-                                : {letter.body || '-'}
-                            </span>
+                        {/* Tanggal */}
+                        <div className="mb-4 text-sm">
+                            Tangerang,{' '}
+                            {new Date().toLocaleDateString('id-ID', {
+                                day: '2-digit',
+                                month: 'long',
+                                year: 'numeric',
+                            })}
                         </div>
 
-                        <div className="mt-8 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm font-medium text-slate-500">
-                            BP3 memakai template DOCX dari storage/app/template/BP3.docx lalu dikonversi menjadi PDF untuk preview dan download.
+                        {/* Info Surat */}
+                        <table className="mb-5 text-sm">
+                            <tbody>
+                                <tr>
+                                    <td className="w-[90px] align-top">Nomor</td>
+                                    <td className="w-[15px] align-top">:</td>
+                                    <td className="font-semibold">
+                                        {letter.number || '-'}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td className="align-top">Lampiran</td>
+                                    <td className="align-top">:</td>
+                                    <td>1 Berkas</td>
+                                </tr>
+                                <tr>
+                                    <td className="align-top">Perihal</td>
+                                    <td className="align-top">:</td>
+                                    <td>{letter.subject || '-'}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        {/* Tujuan */}
+                        <div className="mb-5 text-sm">
+                            <div>Kepada Yth.</div>
+                            <div className="font-semibold uppercase">
+                                KELAPA BALAI PENDIDIKAN DAN PELATIHAN
+                                PENERBANGAN (BP3) CURUG
+                            </div>
+                            <div>Di -</div>
+                            <div>TEMPAT</div>
+                        </div>
+
+                        {/* Isi */}
+                        <div className="text-justify text-sm leading-7">
+                            {letter.body ? (
+                                <p className="whitespace-pre-wrap">
+                                    {letter.body}
+                                </p>
+                            ) : (
+                                <p className="text-slate-400 italic">
+                                    Isi surat belum diisi — akan diambil dari
+                                    template DOCX.
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Note */}
+                        <div className="mt-6 rounded-lg border border-dashed border-blue-200 bg-blue-50 p-3 text-xs text-blue-600">
+                            <span className="font-semibold">Template BP3:</span>{' '}
+                            Output PDF dihasilkan dari{' '}
+                            <code className="rounded bg-blue-100 px-1">
+                                storage/app/template/BP3.docx
+                            </code>
+                            . Tanggal otomatis hari ini. Teks bold di DOCX akan
+                            diganti dengan nilai yang diisi.
                         </div>
                     </div>
                 </div>

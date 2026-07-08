@@ -10,7 +10,7 @@ use ZipArchive;
 class DocxTemplatePdfGenerator
 {
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
      */
     public function generateDocx(string $templateKey, array $values): string
     {
@@ -28,7 +28,7 @@ class DocxTemplatePdfGenerator
     }
 
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
      */
     public function generatePdf(string $templateKey, array $values): string
     {
@@ -109,7 +109,7 @@ class DocxTemplatePdfGenerator
     }
 
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
      */
     private function replaceTemplateValues(string $xml, array $values): string
     {
@@ -126,7 +126,14 @@ class DocxTemplatePdfGenerator
         $xpath = new \DOMXPath($document);
         $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
 
-        $orderedValues = [$values['tanggal_surat'], $values['nomor'], $values['isi']];
+        $orderedValues = [
+            $values['tanggal_surat'],
+            $values['nomor'],
+            $values['nomor_pks_1'] ?? null,
+            $values['nomor_pks_2'] ?? null,
+            $values['isi'],
+        ];
+        $orderedValues = array_values(array_filter($orderedValues, fn ($v) => $v !== null));
         $orderedIndex = 0;
 
         /** @var \DOMElement $run */
@@ -156,7 +163,7 @@ class DocxTemplatePdfGenerator
     }
 
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
      */
     private function replacePlaceholders(string $xml, array $values): string
     {
@@ -175,6 +182,23 @@ class DocxTemplatePdfGenerator
             '{{tanggal_surat}}' => $values['tanggal_surat'],
         ];
 
+        if (isset($values['nomor_pks_1'])) {
+            $replacements['${nomor_pks_1}'] = $values['nomor_pks_1'];
+            $replacements['{{nomor_pks_1}}'] = $values['nomor_pks_1'];
+        }
+
+        if (isset($values['nomor_pks_2'])) {
+            $replacements['${nomor_pks_2}'] = $values['nomor_pks_2'];
+            $replacements['{{nomor_pks_2}}'] = $values['nomor_pks_2'];
+        }
+
+        if (isset($values['subject'])) {
+            $replacements['${subject}'] = $values['subject'];
+            $replacements['{{subject}}'] = $values['subject'];
+            $replacements['${perihal}'] = $values['subject'];
+            $replacements['{{perihal}}'] = $values['subject'];
+        }
+
         foreach ($replacements as $search => $replace) {
             $xml = str_replace($search, htmlspecialchars($replace, ENT_XML1 | ENT_COMPAT, 'UTF-8'), $xml);
         }
@@ -183,16 +207,34 @@ class DocxTemplatePdfGenerator
     }
 
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
      */
     private function replacementForMarker(string $markerText, array $values): ?string
     {
         $normalized = str($markerText)->lower()->toString();
 
+        // Match PKS nomor patterns before generic 'nomor' check
+        if (isset($values['nomor_pks_1']) && (
+            str_contains($normalized, 'hk.') ||
+            str_contains($normalized, 'nomor pks 1') ||
+            str_contains($normalized, 'nomor_pks_1')
+        )) {
+            return $values['nomor_pks_1'];
+        }
+
+        if (isset($values['nomor_pks_2']) && (
+            str_contains($normalized, 'pjj.') ||
+            str_contains($normalized, 'nomor pks 2') ||
+            str_contains($normalized, 'nomor_pks_2')
+        )) {
+            return $values['nomor_pks_2'];
+        }
+
         return match (true) {
-            str_contains($normalized, 'nomor') => $values['nomor'],
-            str_contains($normalized, 'isi') => $values['isi'],
             str_contains($normalized, 'tanggal') => $values['tanggal_surat'],
+            str_contains($normalized, 'nomor') => $values['nomor'],
+            str_contains($normalized, 'perihal') || str_contains($normalized, 'subject') => $values['subject'] ?? null,
+            str_contains($normalized, 'isi') => $values['isi'],
             default => null,
         };
     }
@@ -249,9 +291,9 @@ class DocxTemplatePdfGenerator
                 '--convert-to',
                 'pdf',
                 '--outdir',
-                $outputDirectory,
-                $docxPath,
-            ]);
+                str_replace('/', '\\', $outputDirectory),
+                str_replace('/', '\\', $docxPath),
+            ], null, $this->windowsAutomationEnvironment());
             $process->setTimeout(60);
             $process->run();
 
@@ -326,13 +368,17 @@ word.Quit
 WScript.Quit 0
 VBSCRIPT);
 
+        $winScriptPath = str_replace('/', '\\', $scriptPath);
+        $winDocxPath = str_replace('/', '\\', $docxPath);
+        $winPdfPath = str_replace('/', '\\', $pdfPath);
+
         $process = new Process([
             $cscript,
             '//Nologo',
-            $scriptPath,
-            $docxPath,
-            $pdfPath,
-        ]);
+            $winScriptPath,
+            $winDocxPath,
+            $winPdfPath,
+        ], null, $this->windowsAutomationEnvironment());
         $process->setTimeout(90);
         $process->run();
 
@@ -345,10 +391,7 @@ VBSCRIPT);
     }
 
     /**
-     * @return array<string, string>
-     */
-    /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
      */
     private function writeFallbackPdf(string $pdfPath, array $values): void
     {
@@ -436,6 +479,7 @@ VBSCRIPT);
             'LOCALAPPDATA' => getenv('LOCALAPPDATA') ?: 'C:\\Users\\Hokiana\\AppData\\Local',
             'TEMP' => getenv('TEMP') ?: 'C:\\tmp',
             'TMP' => getenv('TMP') ?: 'C:\\tmp',
+            'PATH' => getenv('PATH') ?: 'C:\\Windows\\system32;C:\\Windows',
         ];
     }
 
