@@ -537,11 +537,8 @@ function TemplateLetterView() {
     const [draft, setDraft] = useState({
         template: 'bp3' as TemplateLetterType,
         number: 'API.17610/DL.06.01/2026/REG I-B',
-        number_pks_1: 'HK.201/1/7/BP3C/2026',
-        number_pks_2: 'PJJ.CGR.HCB.0003/DL.06.01/2026',
-        subject:
-            'Permohonan Pelaksanaan Recurrent Senior Avsec bagi Karyawan Kantor Regional I PT Angkasa Pura Indonesia (Persero)',
-        body: '',
+        date: 'Tangerang, 01 Juli 2026',
+        body: 'HK.201/1/7/BP3C/2026; PJJ.CGR.HCB.0003/DL.06.01/2026',
     });
     const [letter, setLetter] = useState(draft);
     const selectedTemplate =
@@ -550,9 +547,7 @@ function TemplateLetterView() {
     const outputQuery = {
         template: letter.template,
         number: letter.number,
-        number_pks_1: letter.number_pks_1,
-        number_pks_2: letter.number_pks_2,
-        subject: letter.subject,
+        date: letter.date,
         body: letter.body,
     };
     const pdfUrl = templateLetterPdf.url({
@@ -614,60 +609,25 @@ function TemplateLetterView() {
                     </label>
 
                     <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
-                        Perihal
+                        Tanggal Surat
                         <input
                             type="text"
-                            value={draft.subject}
+                            value={draft.date}
+                            placeholder="mis. Tangerang, 01 Juli 2026"
                             onChange={(event) =>
                                 setDraft((current) => ({
                                     ...current,
-                                    subject: event.target.value,
+                                    date: event.target.value,
                                 }))
                             }
                             className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
                         />
                     </label>
 
-                    <div className="grid grid-cols-2 gap-3">
-                        <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
-                            Nomor PKS 1
-                            <input
-                                type="text"
-                                value={draft.number_pks_1}
-                                placeholder="mis. HK.201/1/7/BP3C/2026"
-                                onChange={(event) =>
-                                    setDraft((current) => ({
-                                        ...current,
-                                        number_pks_1: event.target.value,
-                                    }))
-                                }
-                                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
-                            />
-                        </label>
-
-                        <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
-                            Nomor PKS 2
-                            <input
-                                type="text"
-                                value={draft.number_pks_2}
-                                placeholder="mis. PJJ.CGR.HCB.0003/..."
-                                onChange={(event) =>
-                                    setDraft((current) => ({
-                                        ...current,
-                                        number_pks_2: event.target.value,
-                                    }))
-                                }
-                                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
-                            />
-                        </label>
-                    </div>
-
                     <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
-                        Isi Surat
+                        Isi Surat (Nomor PKS)
                         <p className="text-xs font-normal text-slate-400">
-                            Teks yang diketik di sini akan menggantikan bagian{' '}
-                            <strong>bold</strong> di dokumen. Output download tidak
-                            akan bold.
+                            Teks ini akan menggantikan bagian perjanjian kerjasama (PKS) yang dibirukan pada surat BP3.
                         </p>
                         <textarea
                             value={draft.body}
@@ -677,7 +637,7 @@ function TemplateLetterView() {
                                     body: event.target.value,
                                 }))
                             }
-                            rows={5}
+                            rows={4}
                             className="resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
                         />
                     </label>
@@ -713,7 +673,7 @@ function TemplateLetterView() {
                         {/* Kop Surat */}
                         <div className="mb-5">
                             <div className="text-[22px] font-bold leading-tight tracking-tight text-slate-900">
-                                in<span className="text-[#00A99D]">j</span>ourney
+                                InJourney
                             </div>
                             <div className="text-[11px] font-bold tracking-[6px] text-[#00A99D]">
                                 AIRPORTS
@@ -721,13 +681,8 @@ function TemplateLetterView() {
                         </div>
 
                         {/* Tanggal */}
-                        <div className="mb-4 text-sm">
-                            Tangerang,{' '}
-                            {new Date().toLocaleDateString('id-ID', {
-                                day: '2-digit',
-                                month: 'long',
-                                year: 'numeric',
-                            })}
+                        <div className="mb-4 text-sm font-normal">
+                            {letter.date || 'Tangerang, 01 Juli 2026'}
                         </div>
 
                         {/* Info Surat */}
@@ -736,7 +691,7 @@ function TemplateLetterView() {
                                 <tr>
                                     <td className="w-[90px] align-top">Nomor</td>
                                     <td className="w-[15px] align-top">:</td>
-                                    <td className="font-semibold">
+                                    <td>
                                         {letter.number || '-'}
                                     </td>
                                 </tr>
@@ -748,7 +703,9 @@ function TemplateLetterView() {
                                 <tr>
                                     <td className="align-top">Perihal</td>
                                     <td className="align-top">:</td>
-                                    <td>{letter.subject || '-'}</td>
+                                    <td>
+                                        Permohonan Pelaksanaan Recurrent Senior Avsec bagi Karyawan Kantor Regional I PT Angkasa Pura Indonesia (Persero)
+                                    </td>
                                 </tr>
                             </tbody>
                         </table>
@@ -766,16 +723,16 @@ function TemplateLetterView() {
 
                         {/* Isi */}
                         <div className="text-justify text-sm leading-7">
-                            {letter.body ? (
-                                <p className="whitespace-pre-wrap">
-                                    {letter.body}
-                                </p>
-                            ) : (
-                                <p className="text-slate-400 italic">
-                                    Isi surat belum diisi — akan diambil dari
-                                    template DOCX.
-                                </p>
-                            )}
+                            <p>
+                                Menindaklanjuti Perjanjian Kerjasama Antara Balai Pendidikan dan Pelatihan Penerbangan Curug dan
+                                PT Angkasa Pura Indonesia Kantor Regional I Nomor{' '}
+                                <span className="bg-yellow-100 px-1">
+                                    {letter.body || 'HK.201/1/7/BP3C/2026; PJJ.CGR.HCB.0003/DL.06.01/2026'}
+                                </span>{' '}
+                                Tentang Pelatihan Personel Bidang Bandar Udara (Refreshment) Dan Personel Bidang Keamanan
+                                Penerbangan (Recurrent), bersama ini disampaikan permohonan pelaksanaan Pelatihan Recurrent
+                                Senior Avsec bagi karyawan di lingkungan Regional I PT Angkasa Pura Indonesia (Persero).
+                            </p>
                         </div>
 
                         {/* Note */}
@@ -785,8 +742,7 @@ function TemplateLetterView() {
                             <code className="rounded bg-blue-100 px-1">
                                 storage/app/template/BP3.docx
                             </code>
-                            . Tanggal otomatis hari ini. Teks bold di DOCX akan
-                            diganti dengan nilai yang diisi.
+                            . Teks yang diubah tidak akan menggunakan huruf tebal (bold).
                         </div>
                     </div>
                 </div>

@@ -30,8 +30,7 @@ class TemplateLetterController extends Controller
         $validated = $request->validate([
             'template' => ['nullable', 'string', Rule::in(array_keys(self::TEMPLATES))],
             'number' => ['nullable', 'string', 'max:120'],
-            'number_pks_1' => ['nullable', 'string', 'max:120'],
-            'number_pks_2' => ['nullable', 'string', 'max:120'],
+            'date' => ['nullable', 'string', 'max:120'],
             'subject' => ['nullable', 'string', 'max:255'],
             'body' => ['nullable', 'string', 'max:5000'],
             'download' => ['nullable', 'boolean'],
@@ -40,8 +39,7 @@ class TemplateLetterController extends Controller
         $templateKey = $validated['template'] ?? 'bp3';
         $template = self::TEMPLATES[$templateKey];
         $number = $this->cleanText($validated['number'] ?? 'Nomor surat belum diisi');
-        $numberPks1 = $this->cleanText($validated['number_pks_1'] ?? '');
-        $numberPks2 = $this->cleanText($validated['number_pks_2'] ?? '');
+        $date = $this->cleanText($validated['date'] ?? 'Tangerang, '.now()->translatedFormat('d F Y'));
         $subject = $this->cleanText($validated['subject'] ?? 'Permohonan Pelaksanaan Pelatihan');
         $body = $this->cleanText($validated['body'] ?? '');
 
@@ -49,17 +47,8 @@ class TemplateLetterController extends Controller
             $values = [
                 'nomor' => $number,
                 'isi' => $body,
-                'tanggal_surat' => 'Tangerang, '.now()->translatedFormat('d F Y'),
-                'subject' => $subject,
+                'tanggal_surat' => $date,
             ];
-
-            if ($numberPks1 !== '') {
-                $values['nomor_pks_1'] = $numberPks1;
-            }
-
-            if ($numberPks2 !== '') {
-                $values['nomor_pks_2'] = $numberPks2;
-            }
 
             try {
                 $disposition = $request->boolean('download') ? 'attachment' : 'inline';

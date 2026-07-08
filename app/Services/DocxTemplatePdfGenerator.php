@@ -10,7 +10,7 @@ use ZipArchive;
 class DocxTemplatePdfGenerator
 {
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
      */
     public function generateDocx(string $templateKey, array $values): string
     {
@@ -28,7 +28,7 @@ class DocxTemplatePdfGenerator
     }
 
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
      */
     public function generatePdf(string $templateKey, array $values): string
     {
@@ -109,7 +109,7 @@ class DocxTemplatePdfGenerator
     }
 
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
      */
     private function replaceTemplateValues(string $xml, array $values): string
     {
@@ -126,44 +126,65 @@ class DocxTemplatePdfGenerator
         $xpath = new \DOMXPath($document);
         $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
 
-        $orderedValues = [
-            $values['tanggal_surat'],
-            $values['nomor'],
-            $values['nomor_pks_1'] ?? null,
-            $values['nomor_pks_2'] ?? null,
-            $values['isi'],
-        ];
-        $orderedValues = array_values(array_filter($orderedValues, fn ($v) => $v !== null));
-        $orderedIndex = 0;
+        $seenDate = false;
+        $seenNumber = false;
 
         /** @var \DOMElement $run */
-        foreach ($xpath->query('//w:r[w:rPr/w:i or w:rPr/w:iCs or w:rPr/w:b or w:rPr/w:bCs]') as $run) {
-            $markerText = trim($this->runText($xpath, $run));
+        foreach ($xpath->query('//w:r') as $run) {
+            $text = '';
+            foreach ($xpath->query('w:t', $run) as $textNode) {
+                $text .= $textNode->textContent;
+            }
 
-            if ($markerText === '') {
+            $trimmed = trim($text);
+
+            if ($trimmed === 'Tangerang,') {
+                $seenDate = true;
+                $this->replaceRunText($document, $xpath, $run, $values['tanggal_surat']);
+                $this->removeMarkerFormatting($xpath, $run);
+
                 continue;
             }
 
-            $replacement = $this->replacementForMarker($markerText, $values);
+            if ($seenDate && ($trimmed === '01' || $trimmed === 'Juli' || $trimmed === '2026')) {
+                $this->replaceRunText($document, $xpath, $run, '');
+                if ($trimmed === '2026') {
+                    $seenDate = false;
+                }
 
-            if ($replacement === null) {
-                $replacement = $orderedValues[$orderedIndex] ?? null;
-                $orderedIndex++;
-            }
-
-            if ($replacement === null) {
                 continue;
             }
 
-            $this->removeMarkerFormatting($xpath, $run);
-            $this->replaceRunText($document, $xpath, $run, $replacement);
+            if (str_starts_with($trimmed, 'API.17610')) {
+                $seenNumber = true;
+                $this->replaceRunText($document, $xpath, $run, $values['nomor']);
+                $this->removeMarkerFormatting($xpath, $run);
+
+                continue;
+            }
+
+            if ($seenNumber && ($trimmed === 'I-' || $trimmed === 'B')) {
+                $this->replaceRunText($document, $xpath, $run, '');
+                if ($trimmed === 'B') {
+                    $seenNumber = false;
+                }
+
+                continue;
+            }
+
+            if (str_contains($trimmed, 'HK.201/1/7/BP3C/2026')) {
+                $this->replaceRunText($document, $xpath, $run, $values['isi']);
+                $this->removeMarkerFormatting($xpath, $run);
+
+                continue;
+            }
         }
 
         return $document->saveXML() ?: $xml;
     }
 
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
      */
     private function replacePlaceholders(string $xml, array $values): string
     {
@@ -182,23 +203,6 @@ class DocxTemplatePdfGenerator
             '{{tanggal_surat}}' => $values['tanggal_surat'],
         ];
 
-        if (isset($values['nomor_pks_1'])) {
-            $replacements['${nomor_pks_1}'] = $values['nomor_pks_1'];
-            $replacements['{{nomor_pks_1}}'] = $values['nomor_pks_1'];
-        }
-
-        if (isset($values['nomor_pks_2'])) {
-            $replacements['${nomor_pks_2}'] = $values['nomor_pks_2'];
-            $replacements['{{nomor_pks_2}}'] = $values['nomor_pks_2'];
-        }
-
-        if (isset($values['subject'])) {
-            $replacements['${subject}'] = $values['subject'];
-            $replacements['{{subject}}'] = $values['subject'];
-            $replacements['${perihal}'] = $values['subject'];
-            $replacements['{{perihal}}'] = $values['subject'];
-        }
-
         foreach ($replacements as $search => $replace) {
             $xml = str_replace($search, htmlspecialchars($replace, ENT_XML1 | ENT_COMPAT, 'UTF-8'), $xml);
         }
@@ -207,33 +211,15 @@ class DocxTemplatePdfGenerator
     }
 
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
      */
     private function replacementForMarker(string $markerText, array $values): ?string
     {
         $normalized = str($markerText)->lower()->toString();
 
-        // Match PKS nomor patterns before generic 'nomor' check
-        if (isset($values['nomor_pks_1']) && (
-            str_contains($normalized, 'hk.') ||
-            str_contains($normalized, 'nomor pks 1') ||
-            str_contains($normalized, 'nomor_pks_1')
-        )) {
-            return $values['nomor_pks_1'];
-        }
-
-        if (isset($values['nomor_pks_2']) && (
-            str_contains($normalized, 'pjj.') ||
-            str_contains($normalized, 'nomor pks 2') ||
-            str_contains($normalized, 'nomor_pks_2')
-        )) {
-            return $values['nomor_pks_2'];
-        }
-
         return match (true) {
             str_contains($normalized, 'tanggal') => $values['tanggal_surat'],
             str_contains($normalized, 'nomor') => $values['nomor'],
-            str_contains($normalized, 'perihal') || str_contains($normalized, 'subject') => $values['subject'] ?? null,
             str_contains($normalized, 'isi') => $values['isi'],
             default => null,
         };
@@ -391,7 +377,7 @@ VBSCRIPT);
     }
 
     /**
-     * @param  array{nomor: string, isi: string, tanggal_surat: string, nomor_pks_1?: string, nomor_pks_2?: string, subject?: string}  $values
+     * @param  array{nomor: string, isi: string, tanggal_surat: string}  $values
      */
     private function writeFallbackPdf(string $pdfPath, array $values): void
     {
