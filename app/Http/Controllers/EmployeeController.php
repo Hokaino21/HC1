@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Exports\MandatoryTrainingExport;
 use App\Http\Requests\ImportEmployeesRequest;
 use App\Models\Employee;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,9 +13,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
-use Maatwebsite\Excel\Facades\Excel;
 use SimpleXMLElement;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use ZipArchive;
 
 class EmployeeController extends Controller
@@ -55,6 +53,7 @@ class EmployeeController extends Controller
                 'position' => $employee->position,
                 'pg' => $employee->pg,
                 'unit' => $employee->unit,
+                'location' => $employee->location,
                 'unit_label' => $employee->unit ? Str::of($employee->unit)->upper()->toString() : null,
                 'skp_expired' => $employee->skp_expired?->format('Y-m-d'),
                 'function_category' => $employee->function_category,
@@ -99,6 +98,7 @@ class EmployeeController extends Controller
             'position' => 'nullable|string',
             'pg' => 'nullable|string',
             'unit' => 'nullable|string',
+            'location' => 'nullable|string',
             'skp_expired' => 'nullable|date',
             'function_category' => 'nullable|string',
             'photo_jpg' => 'nullable|string',
@@ -118,9 +118,10 @@ class EmployeeController extends Controller
         return back()->with('success', 'Data karyawan berhasil diperbarui.');
     }
 
-    public function exportMandatoryTraining(Request $request): BinaryFileResponse
+    public function exportMandatoryTraining(Request $request): \Illuminate\Http\Response
     {
         $validated = $request->validate([
+            'document_title' => 'required|string',
             'batch_name' => 'required|string',
             'employee_ids' => 'required|array',
             'employee_ids.*' => 'integer|exists:employees,id',
@@ -128,20 +129,13 @@ class EmployeeController extends Controller
 
         $employees = Employee::whereIn('id', $validated['employee_ids'])->get();
 
-        $data = $employees->map(function (Employee $employee, int $index) {
-            return [
-                $index + 1,
-                $employee->nik,
-                $employee->name,
-                $employee->skp_expired?->format('Y-m-d') ?? '',
-                $employee->function_category ?? '',
-            ];
-        })->toArray();
+        $pdf = Pdf::loadView('mandatory-training', [
+            'document_title' => $validated['document_title'],
+            'batch_name' => $validated['batch_name'],
+            'employees' => $employees,
+        ]);
 
-        return Excel::download(
-            new MandatoryTrainingExport($data, $validated['batch_name']),
-            Str::slug($validated['batch_name']).'.xlsx'
-        );
+        return $pdf->download(Str::slug($validated['document_title']).'.pdf');
     }
 
     /**
@@ -185,6 +179,7 @@ class EmployeeController extends Controller
                 'position' => $this->cellValue($values, $columns['position'] ?? null),
                 'pg' => $this->cellValue($values, $columns['pg'] ?? null),
                 'unit' => $unit ? Str::of($unit)->lower()->toString() : null,
+                'location' => $this->cellValue($values, $columns['location'] ?? null),
                 'skp_expired' => $this->parseDate($this->cellValue($values, $columns['skp_expired'] ?? null), $lineNumber + 2),
                 'function_category' => $this->cellValue($values, $columns['function_category'] ?? null),
                 ...$this->employeeDocumentCellValues($values, $columns),
@@ -470,6 +465,8 @@ class EmployeeController extends Controller
             'position' => 'position',
             'pg' => 'pg',
             'unit' => 'unit',
+            'lokasi' => 'location',
+            'location' => 'location',
             'skpexpired' => 'skp_expired',
             'skpberakhir' => 'skp_expired',
             'fungsi' => 'function_category',

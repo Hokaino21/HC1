@@ -29,6 +29,7 @@ type Employee = {
     position: string | null;
     pg: string | null;
     unit: string | null;
+    location: string | null;
     unit_label: string | null;
     skp_expired: string | null;
     function_category: string | null;
@@ -149,6 +150,7 @@ const employeeTableColumns = [
     'Jabatan',
     'PG',
     'Unit',
+    'Lokasi',
     'SKP Expired',
     'Fungsi',
     ...employeeDocumentColumns.map((column) => column.label),
@@ -159,6 +161,8 @@ const mandatoryTrainingBaseColumns = [
     'No',
     'NIK',
     'Nama',
+    'Lokasi',
+    'Jabatan',
     'SKP Expired',
     'Fungsi',
 ];
@@ -284,10 +288,13 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
     const [checkedEmployeeIds, setCheckedEmployeeIds] = useState<Set<number>>(
         () => new Set(),
     );
-    const [classOverrides, setClassOverrides] = useState<Record<number, string>>(
-        {},
-    );
+    const [classOverrides, setClassOverrides] = useState<
+        Record<number, string>
+    >({});
     const [batchNames, setBatchNames] = useState<Record<string, string>>({});
+    const [documentTitles, setDocumentTitles] = useState<
+        Record<string, string>
+    >({});
     const generatedGroups = useMemo(
         () => groupEmployeesForMandatoryTraining(employees),
         [employees],
@@ -297,7 +304,11 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
         [generatedGroups],
     );
     const groupedEmployees = useMemo(
-        () => applyMandatoryTrainingClassOverrides(generatedGroups, classOverrides),
+        () =>
+            applyMandatoryTrainingClassOverrides(
+                generatedGroups,
+                classOverrides,
+            ),
         [classOverrides, generatedGroups],
     );
     const classOptions = groupedEmployees.map((group) => ({
@@ -320,18 +331,18 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
     }
 
     function toggleGroupChecks(groupKey: string) {
-        const group = groupedEmployees.find(g => g.key === groupKey);
+        const group = groupedEmployees.find((g) => g.key === groupKey);
 
         if (!group) {
-return;
-}
+            return;
+        }
 
         setCheckedEmployeeIds((currentIds) => {
             const nextIds = new Set(currentIds);
-            const groupIds = group.employees.map(e => e.id);
-            const allChecked = groupIds.every(id => currentIds.has(id));
+            const groupIds = group.employees.map((e) => e.id);
+            const allChecked = groupIds.every((id) => currentIds.has(id));
 
-            groupIds.forEach(id => {
+            groupIds.forEach((id) => {
                 if (allChecked) {
                     nextIds.delete(id);
                 } else {
@@ -359,16 +370,17 @@ return;
     }
 
     function handleExportGroup(groupKey: string) {
-        const group = groupedEmployees.find(g => g.key === groupKey);
+        const group = groupedEmployees.find((g) => g.key === groupKey);
 
         if (!group) {
-return;
-}
+            return;
+        }
 
         const batchName = batchNames[groupKey] || `Kelas-${group.tableNumber}`;
+        const documentTitle = documentTitles[groupKey] || 'DAFTAR PESERTA';
         const employeeIds = group.employees
-            .filter(e => checkedEmployeeIds.has(e.id))
-            .map(e => e.id);
+            .filter((e) => checkedEmployeeIds.has(e.id))
+            .map((e) => e.id);
 
         if (employeeIds.length === 0) {
             alert('Pilih minimal satu karyawan untuk diexport');
@@ -380,7 +392,9 @@ return;
         form.method = 'POST';
         form.action = exportMandatoryTraining.url();
 
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        const csrfToken = document
+            .querySelector('meta[name="csrf-token"]')
+            ?.getAttribute('content');
 
         if (csrfToken) {
             const csrfInput = document.createElement('input');
@@ -390,13 +404,19 @@ return;
             form.appendChild(csrfInput);
         }
 
+        const documentTitleInput = document.createElement('input');
+        documentTitleInput.type = 'hidden';
+        documentTitleInput.name = 'document_title';
+        documentTitleInput.value = documentTitle;
+        form.appendChild(documentTitleInput);
+
         const batchNameInput = document.createElement('input');
         batchNameInput.type = 'hidden';
         batchNameInput.name = 'batch_name';
         batchNameInput.value = batchName;
         form.appendChild(batchNameInput);
 
-        employeeIds.forEach(id => {
+        employeeIds.forEach((id) => {
             const input = document.createElement('input');
             input.type = 'hidden';
             input.name = 'employee_ids[]';
@@ -415,12 +435,16 @@ return;
                 groupedEmployees.map((group) => {
                     const tableColumns = [
                         ...mandatoryTrainingBaseColumns,
-                        'Pindah Kelas',
+                        ' Kelas',
                         'Ceklis',
                     ];
-                    const groupIds = group.employees.map(e => e.id);
-                    const groupCheckedCount = groupIds.filter(id => checkedEmployeeIds.has(id)).length;
-                    const isAllGroupChecked = groupIds.length > 0 && groupCheckedCount === groupIds.length;
+                    const groupIds = group.employees.map((e) => e.id);
+                    const groupCheckedCount = groupIds.filter((id) =>
+                        checkedEmployeeIds.has(id),
+                    ).length;
+                    const isAllGroupChecked =
+                        groupIds.length > 0 &&
+                        groupCheckedCount === groupIds.length;
 
                     return (
                         <div
@@ -443,14 +467,31 @@ return;
                                 </div>
                                 <div className="flex flex-wrap items-center gap-3">
                                     <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+                                        Judul Dokumen
+                                        <input
+                                            type="text"
+                                            value={
+                                                documentTitles[group.key] || ''
+                                            }
+                                            onChange={(e) =>
+                                                setDocumentTitles((prev) => ({
+                                                    ...prev,
+                                                    [group.key]: e.target.value,
+                                                }))
+                                            }
+                                            placeholder="Masukan Judul Dokumen"
+                                            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                                        />
+                                    </label>
+                                    <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
                                         Nama Batch
                                         <input
                                             type="text"
                                             value={batchNames[group.key] || ''}
                                             onChange={(e) =>
-                                                setBatchNames(prev => ({
+                                                setBatchNames((prev) => ({
                                                     ...prev,
-                                                    [group.key]: e.target.value
+                                                    [group.key]: e.target.value,
                                                 }))
                                             }
                                             placeholder="Masukkan nama batch"
@@ -465,24 +506,28 @@ return;
                                         <input
                                             type="checkbox"
                                             checked={isAllGroupChecked}
-                                            onChange={() => toggleGroupChecks(group.key)}
+                                            onChange={() =>
+                                                toggleGroupChecks(group.key)
+                                            }
                                             className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
                                         />
                                         Ceklis semua
                                     </label>
                                     <button
                                         type="button"
-                                        onClick={() => handleExportGroup(group.key)}
+                                        onClick={() =>
+                                            handleExportGroup(group.key)
+                                        }
                                         className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6]"
                                     >
                                         <DownloadIcon className="h-4 w-4" />
-                                        Export Excel
+                                        Export PDF
                                     </button>
                                 </div>
                             </div>
 
                             <div className="overflow-x-auto">
-                                <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+                                <table className="w-full min-w-[1000px] border-collapse text-left text-sm">
                                     <thead className="bg-white text-xs font-semibold text-slate-500 uppercase">
                                         <tr>
                                             {tableColumns.map((column) => (
@@ -511,6 +556,14 @@ return;
                                                     </td>
                                                     <td className="px-4 py-3 font-medium whitespace-nowrap text-slate-900">
                                                         {employee.name}
+                                                    </td>
+                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                        {employee.location ??
+                                                            '-'}
+                                                    </td>
+                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                        {employee.position ??
+                                                            '-'}
                                                     </td>
                                                     <td className="px-4 py-3 whitespace-nowrap">
                                                         <SkpExpiryCell
@@ -674,9 +727,6 @@ function TemplateLetterView() {
 
                     <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
                         Isi Surat (Nomor PKS)
-                        <p className="text-xs font-normal text-slate-400">
-                            Teks ini akan menggantikan bagian perjanjian kerjasama (PKS) yang dibirukan pada surat BP3.
-                        </p>
                         <textarea
                             value={draft.body}
                             onChange={(event) =>
@@ -720,7 +770,7 @@ function TemplateLetterView() {
                     <div className="mx-auto min-h-[520px] max-w-2xl rounded-sm bg-white px-10 py-9 text-sm leading-7 text-slate-800 shadow-sm ring-1 ring-slate-200">
                         {/* Kop Surat */}
                         <div className="mb-5">
-                            <div className="text-[22px] font-bold leading-tight tracking-tight text-slate-900">
+                            <div className="text-[22px] leading-tight font-bold tracking-tight text-slate-900">
                                 InJourney
                             </div>
                             <div className="text-[11px] font-bold tracking-[6px] text-[#00A99D]">
@@ -737,11 +787,11 @@ function TemplateLetterView() {
                         <table className="mb-5 text-sm">
                             <tbody>
                                 <tr>
-                                    <td className="w-[90px] align-top">Nomor</td>
-                                    <td className="w-[15px] align-top">:</td>
-                                    <td>
-                                        {letter.number || '-'}
+                                    <td className="w-[90px] align-top">
+                                        Nomor
                                     </td>
+                                    <td className="w-[15px] align-top">:</td>
+                                    <td>{letter.number || '-'}</td>
                                 </tr>
                                 <tr>
                                     <td className="align-top">Lampiran</td>
@@ -752,7 +802,9 @@ function TemplateLetterView() {
                                     <td className="align-top">Perihal</td>
                                     <td className="align-top">:</td>
                                     <td>
-                                        Permohonan Pelaksanaan Recurrent Senior Avsec bagi Karyawan Kantor Regional I PT Angkasa Pura Indonesia (Persero)
+                                        Permohonan Pelaksanaan Recurrent Senior
+                                        Avsec bagi Karyawan Kantor Regional I PT
+                                        Angkasa Pura Indonesia (Persero)
                                     </td>
                                 </tr>
                             </tbody>
@@ -772,25 +824,21 @@ function TemplateLetterView() {
                         {/* Isi */}
                         <div className="text-justify text-sm leading-7">
                             <p>
-                                Menindaklanjuti Perjanjian Kerjasama Antara Balai Pendidikan dan Pelatihan Penerbangan Curug dan
-                                PT Angkasa Pura Indonesia Kantor Regional I Nomor{' '}
+                                Menindaklanjuti Perjanjian Kerjasama Antara
+                                Balai Pendidikan dan Pelatihan Penerbangan Curug
+                                dan PT Angkasa Pura Indonesia Kantor Regional I
+                                Nomor{' '}
                                 <span className="bg-yellow-100 px-1">
-                                    {letter.body || 'HK.201/1/7/BP3C/2026; PJJ.CGR.HCB.0003/DL.06.01/2026'}
+                                    {letter.body ||
+                                        'HK.201/1/7/BP3C/2026; PJJ.CGR.HCB.0003/DL.06.01/2026'}
                                 </span>{' '}
-                                Tentang Pelatihan Personel Bidang Bandar Udara (Refreshment) Dan Personel Bidang Keamanan
-                                Penerbangan (Recurrent), bersama ini disampaikan permohonan pelaksanaan Pelatihan Recurrent
-                                Senior Avsec bagi karyawan di lingkungan Regional I PT Angkasa Pura Indonesia (Persero).
+                                Tentang Pelatihan Personel Bidang Bandar Udara
+                                (Refreshment) Dan Personel Bidang Keamanan
+                                Penerbangan (Recurrent), bersama ini disampaikan
+                                permohonan pelaksanaan Pelatihan Recurrent
+                                Senior Avsec bagi karyawan di lingkungan
+                                Regional I PT Angkasa Pura Indonesia (Persero).
                             </p>
-                        </div>
-
-                        {/* Note */}
-                        <div className="mt-6 rounded-lg border border-dashed border-blue-200 bg-blue-50 p-3 text-xs text-blue-600">
-                            <span className="font-semibold">Template BP3:</span>{' '}
-                            Output PDF dihasilkan dari{' '}
-                            <code className="rounded bg-blue-100 px-1">
-                                storage/app/template/BP3.docx
-                            </code>
-                            . Teks yang diubah tidak akan menggunakan huruf tebal (bold).
                         </div>
                     </div>
                 </div>
@@ -802,12 +850,14 @@ function EmployeeDataView({
     employees,
     unitFilter,
 }: {
-    employees: Employee[],
-    unitFilter: UnitFilter,
+    employees: Employee[];
+    unitFilter: UnitFilter;
 }) {
     const [uploadInputKey, setUploadInputKey] = useState(0);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-    const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+    const [editingEmployee, setEditingEmployee] = useState<Employee | null>(
+        null,
+    );
 
     const editForm = useForm<{
         nik: string;
@@ -815,6 +865,7 @@ function EmployeeDataView({
         position: string | null;
         pg: string | null;
         unit: string | null;
+        location: string | null;
         skp_expired: string | null;
         function_category: string | null;
         photo_jpg: string | null;
@@ -833,6 +884,7 @@ function EmployeeDataView({
         position: null,
         pg: null,
         unit: null,
+        location: null,
         skp_expired: null,
         function_category: null,
         photo_jpg: null,
@@ -906,11 +958,13 @@ function EmployeeDataView({
             position: employee.position,
             pg: employee.pg,
             unit: employee.unit,
+            location: employee.location,
             skp_expired: employee.skp_expired,
             function_category: employee.function_category,
             photo_jpg: employee.photo_jpg,
             ktp_pdf: employee.ktp_pdf,
-            initial_avsec_competency_certificate: employee.initial_avsec_competency_certificate,
+            initial_avsec_competency_certificate:
+                employee.initial_avsec_competency_certificate,
             latest_refresher_certificate: employee.latest_refresher_certificate,
             latest_education_certificate: employee.latest_education_certificate,
             license_book: employee.license_book,
@@ -930,8 +984,8 @@ function EmployeeDataView({
         event.preventDefault();
 
         if (!editingEmployee) {
-return;
-}
+            return;
+        }
 
         editForm.put(update.url(editingEmployee.id), {
             preserveScroll: true,
@@ -1066,6 +1120,9 @@ return;
                                         </td>
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             {employee.unit_label ?? '-'}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            {employee.location ?? '-'}
                                         </td>
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             <SkpExpiryCell
@@ -1253,7 +1310,10 @@ function EditEmployeeModal({
                     </button>
                 </div>
 
-                <form onSubmit={onSubmit} className="flex-1 overflow-y-auto p-4">
+                <form
+                    onSubmit={onSubmit}
+                    className="flex-1 overflow-y-auto p-4"
+                >
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div className="sm:col-span-1">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
@@ -1294,7 +1354,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'position',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1309,7 +1369,10 @@ function EditEmployeeModal({
                                     type="text"
                                     value={form.data.pg || ''}
                                     onChange={(e) =>
-                                        form.setData('pg', e.target.value || null)
+                                        form.setData(
+                                            'pg',
+                                            e.target.value || null,
+                                        )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                                 />
@@ -1324,7 +1387,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'unit',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1339,6 +1402,23 @@ function EditEmployeeModal({
 
                         <div className="sm:col-span-1">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Lokasi
+                                <input
+                                    type="text"
+                                    value={form.data.location || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'location',
+                                            e.target.value || null,
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-1">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
                                 SKP Expired
                                 <input
                                     type="date"
@@ -1346,7 +1426,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'skp_expired',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1363,7 +1443,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'function_category',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1380,7 +1460,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'photo_jpg',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1397,7 +1477,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'ktp_pdf',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1410,11 +1490,15 @@ function EditEmployeeModal({
                                 Sertifikat Kompetensi Initial Avsek (URL)
                                 <input
                                     type="text"
-                                    value={form.data.initial_avsec_competency_certificate || ''}
+                                    value={
+                                        form.data
+                                            .initial_avsec_competency_certificate ||
+                                        ''
+                                    }
                                     onChange={(e) =>
                                         form.setData(
                                             'initial_avsec_competency_certificate',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1427,11 +1511,14 @@ function EditEmployeeModal({
                                 Sertifikat Refresher Terakhir (URL)
                                 <input
                                     type="text"
-                                    value={form.data.latest_refresher_certificate || ''}
+                                    value={
+                                        form.data
+                                            .latest_refresher_certificate || ''
+                                    }
                                     onChange={(e) =>
                                         form.setData(
                                             'latest_refresher_certificate',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1444,11 +1531,14 @@ function EditEmployeeModal({
                                 Ijazah Pendidikan Terakhir (URL)
                                 <input
                                     type="text"
-                                    value={form.data.latest_education_certificate || ''}
+                                    value={
+                                        form.data
+                                            .latest_education_certificate || ''
+                                    }
                                     onChange={(e) =>
                                         form.setData(
                                             'latest_education_certificate',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1465,7 +1555,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'license_book',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1482,7 +1572,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'curriculum_vitae',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1499,7 +1589,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'skck',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1516,7 +1606,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'background_check',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1533,7 +1623,7 @@ function EditEmployeeModal({
                                     onChange={(e) =>
                                         form.setData(
                                             'whatsapp_number',
-                                            e.target.value || null
+                                            e.target.value || null,
                                         )
                                     }
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1804,13 +1894,12 @@ function applyMandatoryTrainingClassOverrides(
         ...group,
         employees: [] as Employee[],
     }));
-    const groupsByKey = new Map(
-        groupCopies.map((group) => [group.key, group]),
-    );
+    const groupsByKey = new Map(groupCopies.map((group) => [group.key, group]));
 
     groups.forEach((group) => {
         group.employees.forEach((employee) => {
-            const targetGroup = groupsByKey.get(classOverrides[employee.id]) ??
+            const targetGroup =
+                groupsByKey.get(classOverrides[employee.id]) ??
                 groupsByKey.get(group.key);
 
             targetGroup?.employees.push(employee);
@@ -1822,7 +1911,6 @@ function applyMandatoryTrainingClassOverrides(
 function normalizeCategoryKey(value: string | null) {
     return value?.trim().toLocaleLowerCase('id-ID') ?? '';
 }
-
 
 function LayoutGridIcon(props: SVGProps<SVGSVGElement>) {
     return (
@@ -2035,7 +2123,3 @@ function PencilIcon(props: SVGProps<SVGSVGElement>) {
         </svg>
     );
 }
-
-
-
-

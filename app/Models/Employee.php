@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $position
  * @property string|null $pg
  * @property string|null $unit
+ * @property string|null $location
  * @property Carbon|null $skp_expired
  * @property string|null $function_category
  * @property string|null $photo_jpg
@@ -34,6 +35,7 @@ use Illuminate\Support\Carbon;
     'position',
     'pg',
     'unit',
+    'location',
     'skp_expired',
     'function_category',
     'photo_jpg',

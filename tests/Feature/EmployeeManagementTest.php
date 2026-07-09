@@ -11,9 +11,9 @@ it('imports employees from a csv file', function () {
     Storage::fake('local');
 
     $file = UploadedFile::fake()->createWithContent('employees.csv', implode("\n", [
-        'nik,nama,jabatan,pg,unit,skp expired,fungsi,pas foto(jpg),KTP(pdf),Serifikat Kompetensi Initial Avsec,sertifikat refresher terakhir,ijazah pendidikan terakhir,buku lisensi,daftar riwayat hidup,skck,background Chech,Nomor WA',
-        '1001,Budi Santoso,Supervisor,PG1,Teknik,2026-12-31,Operasional,budi.jpg,budi-ktp.pdf,budi-initial.pdf,budi-refresher.pdf,budi-ijazah.pdf,budi-lisensi.pdf,budi-cv.pdf,budi-skck.pdf,clear,628123456789',
-        '1002,Sari Aminah,Officer,PG2,Avsek,31/01/2027,Keamanan,,,,,,,,,,',
+        'nik,nama,jabatan,pg,unit,lokasi,skp expired,fungsi,pas foto(jpg),KTP(pdf),Serifikat Kompetensi Initial Avsec,sertifikat refresher terakhir,ijazah pendidikan terakhir,buku lisensi,daftar riwayat hidup,skck,background Chech,Nomor WA',
+        '1001,Budi Santoso,Supervisor,PG1,Teknik,Terminal 1,2026-12-31,Operasional,budi.jpg,budi-ktp.pdf,budi-initial.pdf,budi-refresher.pdf,budi-ijazah.pdf,budi-lisensi.pdf,budi-cv.pdf,budi-skck.pdf,clear,628123456789',
+        '1002,Sari Aminah,,PG2,Avsek,,31/01/2027,Keamanan,,,,,,,,,,',
     ]));
 
     $this->post(route('employees.import'), [
@@ -26,6 +26,7 @@ it('imports employees from a csv file', function () {
         'position' => 'Supervisor',
         'pg' => 'PG1',
         'unit' => 'teknik',
+        'location' => 'Terminal 1',
         'skp_expired' => '2026-12-31 00:00:00',
         'function_category' => 'Operasional',
         'photo_jpg' => 'budi.jpg',
@@ -43,7 +44,9 @@ it('imports employees from a csv file', function () {
     assertDatabaseHas('employees', [
         'nik' => '1002',
         'name' => 'Sari Aminah',
+        'position' => null,
         'unit' => 'avsek',
+        'location' => null,
         'skp_expired' => '2027-01-31 00:00:00',
         'photo_jpg' => null,
         'ktp_pdf' => null,
@@ -112,7 +115,9 @@ it('filters employees by unit or function on the home page', function () {
     Employee::query()->create([
         'nik' => '1002',
         'name' => 'Sari Aminah',
+        'position' => null,
         'unit' => 'avsek',
+        'location' => null,
         'function_category' => 'Keamanan',
     ]);
 
@@ -124,6 +129,24 @@ it('filters employees by unit or function on the home page', function () {
             ->has('employees', 1)
             ->where('employees.0.nik', '1001')
         );
+});
+
+it('exports mandatory training participants to a pdf', function () {
+    $employee = Employee::query()->create([
+        'nik' => '1001',
+        'name' => 'Budi Santoso',
+        'position' => 'Supervisor',
+        'unit' => 'teknik',
+        'location' => 'Terminal 1',
+    ]);
+
+    $this->post(route('employees.export-mandatory-training'), [
+        'document_title' => 'Daftar Peserta Mandatory',
+        'batch_name' => 'Batch Teknik',
+        'employee_ids' => [$employee->id],
+    ])
+        ->assertOk()
+        ->assertDownload('daftar-peserta-mandatory.pdf');
 });
 
 it('deletes an employee', function () {
