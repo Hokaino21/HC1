@@ -748,20 +748,11 @@ function TemplateLetterView() {
                             Generate Surat
                         </button>
                         <a
-                            href={pdfUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                        >
-                            <DownloadIcon className="h-4 w-4" />
-                            Preview PDF
-                        </a>
-                        <a
                             href={downloadPdfUrl}
                             className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#4863df]/30 bg-[#4863df]/5 px-4 text-sm font-semibold text-[#4863df] shadow-sm transition hover:bg-[#4863df]/10"
                         >
                             <DownloadIcon className="h-4 w-4" />
-                            Download PDF
+                            Download DOCX
                         </a>
                     </div>
                 </div>

@@ -52,10 +52,11 @@ class TemplateLetterController extends Controller
 
             try {
                 $disposition = $request->boolean('download') ? 'attachment' : 'inline';
+                $fileName = strtoupper($templateKey).'.docx';
 
-                return response()->file($docxGenerator->generatePdf($templateKey, $values), [
-                    'Content-Type' => 'application/pdf',
-                    'Content-Disposition' => $disposition.'; filename="BP3.pdf"',
+                return response()->file($docxGenerator->generateDocx($templateKey, $values), [
+                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'Content-Disposition' => $disposition.'; filename="'.$fileName.'"',
                 ]);
             } catch (RuntimeException $exception) {
                 abort(503, $exception->getMessage());
