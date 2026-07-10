@@ -10,6 +10,8 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $nik
  * @property string $name
+ * @property string|null $place_of_birth
+ * @property string|null $date_of_birth
  * @property string|null $position
  * @property string|null $pg
  * @property string|null $unit
@@ -18,8 +20,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $function_category
  * @property string|null $photo_jpg
  * @property string|null $ktp_pdf
- * @property string|null $initial_avsec_competency_certificate
- * @property string|null $latest_refresher_certificate
+ * @property string|null $competency_certificate
+ * @property string|null $latest_certificate
  * @property string|null $latest_education_certificate
  * @property string|null $license_book
  * @property string|null $curriculum_vitae
@@ -32,6 +34,8 @@ use Illuminate\Support\Carbon;
 #[Fillable([
     'nik',
     'name',
+    'place_of_birth',
+    'date_of_birth',
     'position',
     'pg',
     'unit',
@@ -40,8 +44,8 @@ use Illuminate\Support\Carbon;
     'function_category',
     'photo_jpg',
     'ktp_pdf',
-    'initial_avsec_competency_certificate',
-    'latest_refresher_certificate',
+    'competency_certificate',
+    'latest_certificate',
     'latest_education_certificate',
     'license_book',
     'curriculum_vitae',
@@ -60,6 +64,7 @@ class Employee extends Model
     {
         return [
             'skp_expired' => 'date',
+            'date_of_birth' => 'date',
         ];
     }
 }

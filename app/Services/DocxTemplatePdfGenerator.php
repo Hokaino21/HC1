@@ -49,6 +49,7 @@ class DocxTemplatePdfGenerator
     {
         $fileName = strtoupper($templateKey).'.docx';
         $paths = [
+            resource_path('templates/'.$fileName),
             storage_path('app/template/'.$fileName),
             storage_path('app/templates/'.$fileName),
         ];

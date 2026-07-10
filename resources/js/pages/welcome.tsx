@@ -1,5 +1,5 @@
 import { Head, router, useForm } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import React, { Fragment, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ComponentType, FormEvent, SVGProps } from 'react';
 
 import {
@@ -13,6 +13,7 @@ import { pdf as templateLetterPdf } from '@/routes/template-surat';
 
 type TabId = 'dashboard' | 'karyawan' | 'diklat' | 'template';
 type UnitFilter = '' | 'teknik' | 'avsek' | 'pkpk';
+type SkpFilter = '' | 'expired' | 'active' | 'within_year';
 type TemplateLetterType = 'bp3' | 'ppic';
 
 type NavigationItem = {
@@ -26,6 +27,8 @@ type Employee = {
     id: number;
     nik: string;
     name: string;
+    place_of_birth: string | null;
+    date_of_birth: string | null;
     position: string | null;
     pg: string | null;
     unit: string | null;
@@ -35,8 +38,8 @@ type Employee = {
     function_category: string | null;
     photo_jpg: string | null;
     ktp_pdf: string | null;
-    initial_avsec_competency_certificate: string | null;
-    latest_refresher_certificate: string | null;
+    competency_certificate: string | null;
+    latest_certificate: string | null;
     latest_education_certificate: string | null;
     license_book: string | null;
     curriculum_vitae: string | null;
@@ -50,8 +53,8 @@ type EmployeeDocumentColumn = {
         Employee,
         | 'photo_jpg'
         | 'ktp_pdf'
-        | 'initial_avsec_competency_certificate'
-        | 'latest_refresher_certificate'
+        | 'competency_certificate'
+        | 'latest_certificate'
         | 'latest_education_certificate'
         | 'license_book'
         | 'curriculum_vitae'
@@ -71,7 +74,7 @@ type WelcomeProps = {
 
 type SkpExpiryStatus = {
     label: string;
-    tone: 'expired' | 'warning';
+    tone: 'expired' | 'warning' | 'active';
 };
 
 type SkpExpiryAlert = {
@@ -122,15 +125,15 @@ const navigationItems: NavigationItem[] = [
 ];
 
 const employeeDocumentColumns: EmployeeDocumentColumn[] = [
-    { key: 'photo_jpg', label: 'Pas Foto (JPG)' },
-    { key: 'ktp_pdf', label: 'KTP (PDF)' },
+    { key: 'photo_jpg', label: 'Pas Foto' },
+    { key: 'ktp_pdf', label: 'KTP' },
     {
-        key: 'initial_avsec_competency_certificate',
-        label: 'Sertifikat Kompetensi Initial Avsec',
+        key: 'competency_certificate',
+        label: 'Sertifikat Kompetensi',
     },
     {
-        key: 'latest_refresher_certificate',
-        label: 'Sertifikat Refresher Terakhir',
+        key: 'latest_certificate',
+        label: 'Sertifikat Terakhir',
     },
     {
         key: 'latest_education_certificate',
@@ -144,15 +147,18 @@ const employeeDocumentColumns: EmployeeDocumentColumn[] = [
 ];
 
 const employeeTableColumns = [
+    'Ceklis',
     'No',
     'NIK',
     'Nama',
+    'Tempat Lahir',
+    'Tanggal Lahir',
     'Jabatan',
     'PG',
     'Unit',
     'Lokasi',
     'SKP Expired',
-    'Fungsi',
+    'License',
     ...employeeDocumentColumns.map((column) => column.label),
     'Aksi',
 ];
@@ -164,7 +170,7 @@ const mandatoryTrainingBaseColumns = [
     'Lokasi',
     'Jabatan',
     'SKP Expired',
-    'Fungsi',
+    'License',
 ];
 
 const mandatoryTrainingRowsPerTable = 25;
@@ -295,9 +301,24 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
     const [documentTitles, setDocumentTitles] = useState<
         Record<string, string>
     >({});
+    const [searchQuery, setSearchQuery] = useState('');
+    
+    const filteredEmployees = useMemo(() => {
+        if (!searchQuery.trim()) {
+            return employees;
+        }
+        
+        const lowerQuery = searchQuery.toLowerCase().trim();
+        return employees.filter(employee => 
+            employee.nik.toLowerCase().includes(lowerQuery) ||
+            employee.name.toLowerCase().includes(lowerQuery) ||
+            (employee.function_category && employee.function_category.toLowerCase().includes(lowerQuery))
+        );
+    }, [employees, searchQuery]);
+    
     const generatedGroups = useMemo(
-        () => groupEmployeesForMandatoryTraining(employees),
-        [employees],
+        () => groupEmployeesForMandatoryTraining(filteredEmployees),
+        [filteredEmployees],
     );
     const baseEmployeeClassKeys = useMemo(
         () => buildEmployeeClassKeyMap(generatedGroups),
@@ -313,7 +334,7 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
     );
     const classOptions = groupedEmployees.map((group) => ({
         key: group.key,
-        label: `Kelas ${group.tableNumber} - ${formatSkpExpiryMonthYear(group.skpExpired)} / ${group.functionCategory ?? 'Belum diisi'}`,
+        label: `${group.functionCategory || 'Belum diisi'} ${group.tableNumber}`,
     }));
 
     function toggleEmployeeCheck(employeeId: number) {
@@ -431,6 +452,18 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
 
     return (
         <section className="flex min-h-full flex-col gap-4">
+            <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
+                    Cari (NIK, Nama, License)
+                    <input
+                        type="text"
+                        placeholder="Cari karyawan..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                    />
+                </label>
+            </div>
             {groupedEmployees.length > 0 ? (
                 groupedEmployees.map((group) => {
                     const tableColumns = [
@@ -452,19 +485,15 @@ function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
                             className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
                         >
                             <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-100 px-4 py-3">
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <span className="rounded-lg bg-[#4863df]/10 px-3 py-1 text-sm font-semibold text-[#2f4585] ring-1 ring-[#4863df]/20">
-                                        Fungsi:{' '}
-                                        {group.functionCategory ??
-                                            'Belum diisi'}
-                                    </span>
-                                    <span className="text-sm font-semibold text-slate-500">
-                                        Kelas {group.tableNumber}/
-                                        {group.totalTables} -{' '}
-                                        {group.employees.length}/
-                                        {mandatoryTrainingRowsPerTable} karyawan
-                                    </span>
-                                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                    <span className="rounded-lg bg-[#4863df]/10 px-3 py-1 text-sm font-semibold text-[#2f4585] ring-1 ring-[#4863df]/20">
+                        License:{' '}
+                        {group.functionCategory ?? 'Belum diisi'}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-500">
+                        {group.functionCategory || 'Belum diisi'} {group.tableNumber}
+                    </span>
+                </div>
                                 <div className="flex flex-wrap items-center gap-3">
                                     <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
                                         Judul Dokumen
@@ -661,6 +690,26 @@ function TemplateLetterView() {
         },
     });
 
+    // Template configs for preview
+    const templateConfigs: Record<TemplateLetterType, {
+        perihal: string;
+        tujuan: string;
+        isi: string;
+    }> = {
+        bp3: {
+            perihal: 'Permohonan Pelaksanaan Recurrent Senior Avsec bagi Karyawan Kantor Regional I PT Angkasa Pura Indonesia (Persero)',
+            tujuan: 'KEPADA BALAI PENDIDIKAN DAN PELATIHAN PENERBANGAN (BP3) CURUG',
+            isi: 'Menindaklanjuti Perjanjian Kerjasama Antara Balai Pendidikan dan Pelatihan Penerbangan Curug dan PT Angkasa Pura Indonesia Kantor Regional I Nomor {isi} Tentang Pelatihan Personel Bidang Bandar Udara (Refreshment) Dan Personel Bidang Keamanan Penerbangan (Recurrent), bersama ini disampaikan permohonan pelaksanaan Pelatihan Recurrent Senior Avsec bagi karyawan di lingkungan Regional I PT Angkasa Pura Indonesia (Persero).'
+        },
+        ppic: {
+            perihal: 'Permohonan Pelaksanaan Pelatihan PPIC',
+            tujuan: 'KEPADA PIHAK YANG BERWAJIB',
+            isi: 'Menindaklanjuti Perjanjian Kerjasama Antara Pihak Terkait dan PT Angkasa Pura Indonesia Kantor Regional I Nomor {isi} Tentang Pelatihan PPIC, bersama ini disampaikan permohonan pelaksanaan Pelatihan PPIC bagi karyawan di lingkungan Regional I PT Angkasa Pura Indonesia (Persero).'
+        }
+    };
+
+    const currentConfig = templateConfigs[letter.template] || templateConfigs.bp3;
+
     function updateTemplate(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         setLetter(draft);
@@ -792,11 +841,7 @@ function TemplateLetterView() {
                                 <tr>
                                     <td className="align-top">Perihal</td>
                                     <td className="align-top">:</td>
-                                    <td>
-                                        Permohonan Pelaksanaan Recurrent Senior
-                                        Avsec bagi Karyawan Kantor Regional I PT
-                                        Angkasa Pura Indonesia (Persero)
-                                    </td>
+                                    <td>{currentConfig.perihal}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -805,8 +850,7 @@ function TemplateLetterView() {
                         <div className="mb-5 text-sm">
                             <div>Kepada Yth.</div>
                             <div className="font-semibold uppercase">
-                                KELAPA BALAI PENDIDIKAN DAN PELATIHAN
-                                PENERBANGAN (BP3) CURUG
+                                {currentConfig.tujuan}
                             </div>
                             <div>Di -</div>
                             <div>TEMPAT</div>
@@ -815,20 +859,22 @@ function TemplateLetterView() {
                         {/* Isi */}
                         <div className="text-justify text-sm leading-7">
                             <p>
-                                Menindaklanjuti Perjanjian Kerjasama Antara
-                                Balai Pendidikan dan Pelatihan Penerbangan Curug
-                                dan PT Angkasa Pura Indonesia Kantor Regional I
-                                Nomor{' '}
-                                <span className="bg-yellow-100 px-1">
-                                    {letter.body ||
-                                        'HK.201/1/7/BP3C/2026; PJJ.CGR.HCB.0003/DL.06.01/2026'}
-                                </span>{' '}
-                                Tentang Pelatihan Personel Bidang Bandar Udara
-                                (Refreshment) Dan Personel Bidang Keamanan
-                                Penerbangan (Recurrent), bersama ini disampaikan
-                                permohonan pelaksanaan Pelatihan Recurrent
-                                Senior Avsec bagi karyawan di lingkungan
-                                Regional I PT Angkasa Pura Indonesia (Persero).
+                                {(() => {
+                                    const parts = currentConfig.isi.split('{isi}');
+                                    const bodyContent = letter.body || 'HK.201/1/7/BP3C/2026; PJJ.CGR.HCB.0003/DL.06.01/2026';
+                                    return (
+                                        <>
+                                            {parts[0]}
+                                            <span className="bg-yellow-100 px-1">{bodyContent}</span>
+                                            {parts.slice(1).map((part, i) => (
+                                                <Fragment key={i}>
+                                                    <span className="bg-yellow-100 px-1">{bodyContent}</span>
+                                                    {part}
+                                                </Fragment>
+                                            ))}
+                                        </>
+                                    );
+                                })()}
                             </p>
                         </div>
                     </div>
@@ -849,10 +895,133 @@ function EmployeeDataView({
     const [editingEmployee, setEditingEmployee] = useState<Employee | null>(
         null,
     );
+    const [searchQuery, setSearchQuery] = useState('');
+    const [skpFilter, setSkpFilter] = useState<SkpFilter>('');
+    const [showAllAlerts, setShowAllAlerts] = useState(false);
+    const [checkedEmployeeIds, setCheckedEmployeeIds] = useState<Set<number>>(
+        () => new Set(),
+    );
+    
+    function toggleEmployeeCheck(employeeId: number) {
+        setCheckedEmployeeIds((currentIds) => {
+            const nextIds = new Set(currentIds);
+            if (nextIds.has(employeeId)) {
+                nextIds.delete(employeeId);
+            } else {
+                nextIds.add(employeeId);
+            }
+            return nextIds;
+        });
+    }
+    
+    const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'single' | 'multiple'; employee?: Employee; count?: number } | null>(null);
+
+    function deleteSelectedEmployees() {
+        const employeeIds = Array.from(checkedEmployeeIds);
+        if (employeeIds.length === 0) return;
+        
+        setDeleteConfirm({
+            type: 'multiple',
+            count: employeeIds.length,
+        });
+    }
+    
+    function confirmDeleteSelected() {
+        const employeeIds = Array.from(checkedEmployeeIds);
+        employeeIds.forEach(id => {
+            router.delete(destroy.url(id), {
+                preserveScroll: true,
+                preserveState: true,
+            });
+        });
+        setCheckedEmployeeIds(new Set());
+        setDeleteConfirm(null);
+    }
+    
+    function deleteEmployee(employee: Employee) {
+        setDeleteConfirm({
+            type: 'single',
+            employee,
+        });
+    }
+    
+    function confirmDeleteSingle() {
+        if (!deleteConfirm || deleteConfirm.type !== 'single' || !deleteConfirm.employee) return;
+        router.delete(destroy.url(deleteConfirm.employee.id), {
+            preserveScroll: true,
+            preserveState: true,
+        });
+        setDeleteConfirm(null);
+    }
+    
+    function cancelDelete() {
+        setDeleteConfirm(null);
+    }
+    
+    const tableScrollRef = useRef<HTMLDivElement>(null);
+    const topScrollRef = useRef<HTMLDivElement>(null);
+
+    const handleTableScroll = () => {
+        if (topScrollRef.current && tableScrollRef.current) {
+            topScrollRef.current.scrollLeft = tableScrollRef.current.scrollLeft;
+        }
+    };
+
+    const handleTopScroll = () => {
+        if (topScrollRef.current && tableScrollRef.current) {
+            tableScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+        }
+    };
+    
+    const filteredEmployees = useMemo(() => {
+        let filtered = employees;
+        
+        // Apply search query
+        if (searchQuery.trim()) {
+            const lowerQuery = searchQuery.toLowerCase().trim();
+            filtered = filtered.filter(employee => 
+                employee.nik.toLowerCase().includes(lowerQuery) ||
+                employee.name.toLowerCase().includes(lowerQuery) ||
+                (employee.function_category && employee.function_category.toLowerCase().includes(lowerQuery))
+            );
+        }
+        
+        // Apply skp filter
+        if (skpFilter) {
+            filtered = filtered.filter(employee => {
+                const status = getSkpExpiryStatus(employee.skp_expired);
+                if (!status) return false;
+                
+                if (skpFilter === 'expired') {
+                    return status.tone === 'expired';
+                } else if (skpFilter === 'active') {
+                    return status.tone === 'active';
+                } else if (skpFilter === 'within_year') {
+                    return status.tone === 'warning';
+                }
+                return true;
+            });
+        }
+        
+        return filtered;
+    }, [employees, searchQuery, skpFilter]);
+    
+    // Get unique license categories for filter
+    const licenseOptions = useMemo(() => {
+        const licenses = new Set<string>();
+        employees.forEach(emp => {
+            if (emp.function_category) {
+                licenses.add(emp.function_category);
+            }
+        });
+        return Array.from(licenses).sort();
+    }, [employees]);
 
     const editForm = useForm<{
         nik: string;
         name: string;
+        place_of_birth: string | null;
+        date_of_birth: string | null;
         position: string | null;
         pg: string | null;
         unit: string | null;
@@ -861,8 +1030,8 @@ function EmployeeDataView({
         function_category: string | null;
         photo_jpg: string | null;
         ktp_pdf: string | null;
-        initial_avsec_competency_certificate: string | null;
-        latest_refresher_certificate: string | null;
+        competency_certificate: string | null;
+        latest_certificate: string | null;
         latest_education_certificate: string | null;
         license_book: string | null;
         curriculum_vitae: string | null;
@@ -872,6 +1041,8 @@ function EmployeeDataView({
     }>({
         nik: '',
         name: '',
+        place_of_birth: null,
+        date_of_birth: null,
         position: null,
         pg: null,
         unit: null,
@@ -880,8 +1051,8 @@ function EmployeeDataView({
         function_category: null,
         photo_jpg: null,
         ktp_pdf: null,
-        initial_avsec_competency_certificate: null,
-        latest_refresher_certificate: null,
+        competency_certificate: null,
+        latest_certificate: null,
         latest_education_certificate: null,
         license_book: null,
         curriculum_vitae: null,
@@ -934,18 +1105,13 @@ function EmployeeDataView({
         );
     }
 
-    function deleteEmployee(employee: Employee) {
-        router.delete(destroy.url(employee.id), {
-            preserveScroll: true,
-            preserveState: true,
-        });
-    }
-
     function openEditModal(employee: Employee) {
         setEditingEmployee(employee);
         editForm.setData({
             nik: employee.nik,
             name: employee.name,
+            place_of_birth: employee.place_of_birth,
+            date_of_birth: employee.date_of_birth,
             position: employee.position,
             pg: employee.pg,
             unit: employee.unit,
@@ -954,9 +1120,8 @@ function EmployeeDataView({
             function_category: employee.function_category,
             photo_jpg: employee.photo_jpg,
             ktp_pdf: employee.ktp_pdf,
-            initial_avsec_competency_certificate:
-                employee.initial_avsec_competency_certificate,
-            latest_refresher_certificate: employee.latest_refresher_certificate,
+            competency_certificate: employee.competency_certificate,
+            latest_certificate: employee.latest_certificate,
             latest_education_certificate: employee.latest_education_certificate,
             license_book: employee.license_book,
             curriculum_vitae: employee.curriculum_vitae,
@@ -991,16 +1156,44 @@ function EmployeeDataView({
         <section className="flex min-h-full flex-col gap-4">
             <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm xl:flex-row xl:items-end xl:justify-between">
                 <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
-                    Filter Unit/Fungsi
+                    Cari (NIK, Nama, License)
+                    <input
+                        type="text"
+                        placeholder="Cari karyawan..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                    />
+                </label>
+                <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
+                    Filter Unit/Fungsi/License
                     <select
                         value={unitFilter}
                         onChange={updateUnitFilter}
                         className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
                     >
-                        <option value="">Semua unit</option>
+                        <option value="">Semua</option>
                         <option value="teknik">Teknik</option>
                         <option value="avsek">Avsek</option>
                         <option value="pkpk">PKPK</option>
+                        {licenseOptions.filter(license => !['teknik', 'avsek', 'pkpk'].includes(license.toLowerCase())).map((license) => (
+                            <option key={license} value={license}>
+                                {license}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
+                    Filter SKP Expiry
+                    <select
+                        value={skpFilter}
+                        onChange={(e) => setSkpFilter(e.target.value as SkpFilter)}
+                        className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                    >
+                        <option value="">Semua</option>
+                        <option value="expired">Expired</option>
+                        <option value="within_year">Dalam 1 Tahun</option>
+                        <option value="active">Aktif</option>
                     </select>
                 </label>
 
@@ -1031,14 +1224,7 @@ function EmployeeDataView({
                         <UploadIcon className="h-4 w-4" />
                         {uploadForm.processing ? 'Mengupload...' : 'Upload'}
                     </button>
-                    <button
-                        type="button"
-                        disabled
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-4 text-sm font-semibold text-slate-400"
-                    >
-                        <DownloadIcon className="h-4 w-4" />
-                        Download Template
-                    </button>
+
                 </form>
             </div>
 
@@ -1051,29 +1237,59 @@ function EmployeeDataView({
             {skpExpiryAlerts.length > 0 && (
                 <div className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm sm:flex-row sm:items-start">
                     <AlertTriangleIcon className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-                    <div className="space-y-1">
+                    <div className="space-y-2 flex-1">
                         <p className="font-semibold">
-                            Pengingat SKP expired H-7
+                            Pengingat SKP expired dalam 1 tahun
                         </p>
-                        <p>
-                            {skpExpiryAlerts
-                                .slice(0, 3)
-                                .map(
-                                    ({ employee, status }) =>
-                                        `${employee.name} (${status.label})`,
+                        <div className="space-y-1">
+                            {(showAllAlerts ? skpExpiryAlerts : skpExpiryAlerts.slice(0, 3)).map(
+                                ({ employee, status }, index) => (
+                                    <div key={employee.id} className="flex items-center gap-2">
+                                        <span>{index + 1}.</span>
+                                        <span className="font-medium">{employee.name}</span>
+                                        <span>({status.label})</span>
+                                    </div>
                                 )
-                                .join(', ')}
-                            {skpExpiryAlerts.length > 3
-                                ? ` dan ${skpExpiryAlerts.length - 3} lainnya`
-                                : ''}
-                        </p>
+                            )}
+                        </div>
+                        {skpExpiryAlerts.length > 3 && (
+                            <button
+                                type="button"
+                                onClick={() => setShowAllAlerts(!showAllAlerts)}
+                                className="text-amber-700 font-semibold hover:text-amber-800 underline underline-offset-2"
+                            >
+                                {showAllAlerts ? 'Tampilkan Lebih Sedikit' : `Tampilkan Semua ${skpExpiryAlerts.length} Karyawan`}
+                            </button>
+                        )}
                     </div>
                 </div>
             )}
 
+            <div className="flex flex-wrap gap-3 p-4 border-b border-slate-200 bg-slate-50">
+                <button
+                    type="button"
+                    disabled={checkedEmployeeIds.size === 0}
+                    onClick={deleteSelectedEmployees}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                    <TrashIcon className="h-4 w-4" />
+                    Hapus Terpilih ({checkedEmployeeIds.size})
+                </button>
+            </div>
             <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                <div className="overflow-x-auto">
-                    <table className="w-full min-w-[2600px] border-collapse text-left text-sm">
+                <div
+                    ref={topScrollRef}
+                    className="overflow-x-auto overflow-y-hidden bg-slate-50"
+                    onScroll={handleTopScroll}
+                >
+                    <div style={{ width: '2700px', height: '1px' }} />
+                </div>
+                <div
+                    ref={tableScrollRef}
+                    className="overflow-x-auto"
+                    onScroll={handleTableScroll}
+                >
+                    <table className="w-full min-w-[2700px] border-collapse text-left text-sm">
                         <thead className="bg-slate-100 text-xs font-semibold text-slate-600 uppercase">
                             <tr>
                                 {employeeTableColumns.map((column) => (
@@ -1082,18 +1298,39 @@ function EmployeeDataView({
                                         scope="col"
                                         className="border-b border-slate-200 px-4 py-3 whitespace-nowrap"
                                     >
-                                        {column}
+                                        {column === 'Ceklis' ? (
+                                            <input
+                                                type="checkbox"
+                                                checked={filteredEmployees.length > 0 && filteredEmployees.every(e => checkedEmployeeIds.has(e.id))}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setCheckedEmployeeIds(new Set(filteredEmployees.map(e => e.id)));
+                                                    } else {
+                                                        setCheckedEmployeeIds(new Set());
+                                                    }
+                                                }}
+                                                className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
+                                            />
+                                        ) : column}
                                     </th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {employees.length > 0 ? (
-                                employees.map((employee, index) => (
+                            {filteredEmployees.length > 0 ? (
+                                filteredEmployees.map((employee, index) => (
                                     <tr
                                         key={employee.id}
                                         className="text-slate-700 hover:bg-slate-50"
                                     >
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            <input
+                                                type="checkbox"
+                                                checked={checkedEmployeeIds.has(employee.id)}
+                                                onChange={() => toggleEmployeeCheck(employee.id)}
+                                                className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
+                                            />
+                                        </td>
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             {index + 1}
                                         </td>
@@ -1102,6 +1339,12 @@ function EmployeeDataView({
                                         </td>
                                         <td className="px-4 py-3 font-medium whitespace-nowrap text-slate-900">
                                             {employee.name}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            {employee.place_of_birth ?? '-'}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            {employee.date_of_birth ?? '-'}
                                         </td>
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             {employee.position ?? '-'}
@@ -1191,6 +1434,44 @@ function EmployeeDataView({
                     onSubmit={handleEditSubmit}
                     onClose={closeEditModal}
                 />
+            ) : null}
+            {deleteConfirm ? (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="delete-confirm-title"
+                >
+                    <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-2xl">
+                        <h2
+                            id="delete-confirm-title"
+                            className="text-lg font-bold text-slate-900 mb-4"
+                        >
+                            Konfirmasi Hapus
+                        </h2>
+                        <p className="text-sm text-slate-600 mb-6">
+                            {deleteConfirm.type === 'single'
+                                ? `Apakah Anda yakin ingin menghapus karyawan ${deleteConfirm.employee?.name} (${deleteConfirm.employee?.nik})?`
+                                : `Apakah Anda yakin ingin menghapus ${deleteConfirm.count} karyawan yang terpilih?`}
+                        </p>
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                type="button"
+                                onClick={cancelDelete}
+                                className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                            >
+                                Batal
+                            </button>
+                            <button
+                                type="button"
+                                onClick={deleteConfirm.type === 'single' ? confirmDeleteSingle : confirmDeleteSelected}
+                                className="inline-flex h-10 items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
+                            >
+                                Ya, Hapus
+                            </button>
+                        </div>
+                    </div>
+                </div>
             ) : null}
         </section>
     );
@@ -1338,6 +1619,40 @@ function EditEmployeeModal({
 
                         <div className="sm:col-span-1">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Tempat Lahir
+                                <input
+                                    type="text"
+                                    value={form.data.place_of_birth || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'place_of_birth',
+                                            e.target.value || null,
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-1">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Tanggal Lahir
+                                <input
+                                    type="date"
+                                    value={form.data.date_of_birth || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'date_of_birth',
+                                            e.target.value || null,
+                                        )
+                                    }
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-1">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
                                 Jabatan
                                 <input
                                     type="text"
@@ -1427,7 +1742,7 @@ function EditEmployeeModal({
 
                         <div className="sm:col-span-2">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-                                Kategori Fungsi
+                                License
                                 <input
                                     type="text"
                                     value={form.data.function_category || ''}
@@ -1444,7 +1759,7 @@ function EditEmployeeModal({
 
                         <div className="sm:col-span-2">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-                                Pas Foto (URL)
+                                Pas Foto
                                 <input
                                     type="text"
                                     value={form.data.photo_jpg || ''}
@@ -1461,7 +1776,7 @@ function EditEmployeeModal({
 
                         <div className="sm:col-span-2">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-                                KTP (URL)
+                                KTP
                                 <input
                                     type="text"
                                     value={form.data.ktp_pdf || ''}
@@ -1478,17 +1793,16 @@ function EditEmployeeModal({
 
                         <div className="sm:col-span-2">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-                                Sertifikat Kompetensi Initial Avsek (URL)
+                                Sertifikat Kompetensi
                                 <input
                                     type="text"
                                     value={
-                                        form.data
-                                            .initial_avsec_competency_certificate ||
+                                        form.data.competency_certificate ||
                                         ''
                                     }
                                     onChange={(e) =>
                                         form.setData(
-                                            'initial_avsec_competency_certificate',
+                                            'competency_certificate',
                                             e.target.value || null,
                                         )
                                     }
@@ -1499,16 +1813,16 @@ function EditEmployeeModal({
 
                         <div className="sm:col-span-2">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-                                Sertifikat Refresher Terakhir (URL)
+                                Sertifikat Terakhir
                                 <input
                                     type="text"
                                     value={
-                                        form.data
-                                            .latest_refresher_certificate || ''
+                                        form.data.latest_certificate ||
+                                        ''
                                     }
                                     onChange={(e) =>
                                         form.setData(
-                                            'latest_refresher_certificate',
+                                            'latest_certificate',
                                             e.target.value || null,
                                         )
                                     }
@@ -1724,6 +2038,8 @@ function SkpExpiryCell({ value }: { value: string | null }) {
                     'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
                     status.tone === 'expired'
                         ? 'bg-red-100 text-red-700'
+                        : status.tone === 'active'
+                        ? 'bg-green-100 text-green-700'
                         : 'bg-amber-100 text-amber-700',
                 ].join(' ')}
             >
@@ -1747,25 +2063,30 @@ function getSkpExpiryStatus(value: string | null): SkpExpiryStatus | null {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const daysUntilExpiry = Math.round(
-        (expiryDate.getTime() - today.getTime()) / 86_400_000,
-    );
-
-    if (daysUntilExpiry < 0) {
+    // Calculate months between today and expiry date
+    const yearsDiff = expiryDate.getFullYear() - today.getFullYear();
+    const monthsDiff = expiryDate.getMonth() - today.getMonth();
+    const totalMonthsDiff = yearsDiff * 12 + monthsDiff;
+    
+    // Adjust for day of month
+    const adjustedMonthsUntilExpiry = totalMonthsDiff + (expiryDate.getDate() >= today.getDate() ? 0 : -1);
+    
+    if (adjustedMonthsUntilExpiry < 0) {
         return {
             label: 'Expired',
             tone: 'expired',
         };
-    }
-
-    if (daysUntilExpiry <= 7) {
+    } else if (adjustedMonthsUntilExpiry <= 12) {
         return {
-            label: daysUntilExpiry === 0 ? 'Hari ini' : `H-${daysUntilExpiry}`,
+            label: `-${adjustedMonthsUntilExpiry} bulan`,
             tone: 'warning',
         };
+    } else {
+        return {
+            label: 'Aktif',
+            tone: 'active',
+        };
     }
-
-    return null;
 }
 
 function parseLocalDate(value: string) {
@@ -1827,28 +2148,33 @@ function groupEmployeesForMandatoryTraining(
         });
     });
 
-    return Array.from(categoryGroups.values()).flatMap((group) => {
-        const totalTables = Math.ceil(
-            group.employees.length / mandatoryTrainingRowsPerTable,
-        );
+    const categoryTableCounters = new Map<string, number>();
+    const allGroups: MandatoryTrainingGroup[] = [];
 
-        return Array.from({ length: totalTables }, (_, tableIndex) => {
+    for (const group of categoryGroups.values()) {
+        const functionKey = normalizeCategoryKey(group.functionCategory);
+        const totalTables = Math.ceil(group.employees.length / mandatoryTrainingRowsPerTable);
+        const startTableNumber = (categoryTableCounters.get(functionKey) ?? 0) + 1;
+
+        for (let tableIndex = 0; tableIndex < totalTables; tableIndex++) {
             const startIndex = tableIndex * mandatoryTrainingRowsPerTable;
-            const employees = group.employees.slice(
-                startIndex,
-                startIndex + mandatoryTrainingRowsPerTable,
-            );
+            const groupEmployees = group.employees.slice(startIndex, startIndex + mandatoryTrainingRowsPerTable);
+            const tableNumber = startTableNumber + tableIndex;
 
-            return {
+            allGroups.push({
                 ...group,
-                key: `${group.key}::${tableIndex + 1}`,
-                employees,
-                tableNumber: tableIndex + 1,
+                key: `${group.key}::${tableNumber}`,
+                employees: groupEmployees,
+                tableNumber,
                 totalTables,
                 totalCategoryEmployees: group.employees.length,
-            };
-        });
-    });
+            });
+        }
+
+        categoryTableCounters.set(functionKey, (categoryTableCounters.get(functionKey) ?? 0) + totalTables);
+    }
+
+    return allGroups;
 }
 
 function shuffleEmployees(employees: Employee[]) {

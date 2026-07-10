@@ -24,8 +24,8 @@ class EmployeeController extends Controller
     private const EMPLOYEE_DOCUMENT_COLUMNS = [
         'photo_jpg',
         'ktp_pdf',
-        'initial_avsec_competency_certificate',
-        'latest_refresher_certificate',
+        'competency_certificate',
+        'latest_certificate',
         'latest_education_certificate',
         'license_book',
         'curriculum_vitae',
@@ -36,13 +36,13 @@ class EmployeeController extends Controller
 
     public function index(Request $request): Response
     {
-        $unit = Str::of($request->string('unit')->toString())->lower()->toString();
-        $unit = in_array($unit, ['teknik', 'avsek', 'pkpk'], true) ? $unit : null;
+        $unit = $request->string('unit')->toString();
+        $unit = $unit !== '' ? $unit : null;
 
         $employees = Employee::query()
             ->when($unit, fn ($query) => $query->where(fn ($query) => $query
-                ->whereRaw('LOWER(unit) = ?', [$unit])
-                ->orWhereRaw('LOWER(function_category) = ?', [$unit])
+                ->whereRaw('LOWER(unit) = ?', [strtolower($unit)])
+                ->orWhereRaw('LOWER(function_category) = ?', [strtolower($unit)])
             ))
             ->orderBy('id')
             ->get()
@@ -50,6 +50,8 @@ class EmployeeController extends Controller
                 'id' => $employee->id,
                 'nik' => $employee->nik,
                 'name' => $employee->name,
+                'place_of_birth' => $employee->place_of_birth,
+                'date_of_birth' => $employee->date_of_birth?->format('Y-m-d'),
                 'position' => $employee->position,
                 'pg' => $employee->pg,
                 'unit' => $employee->unit,
@@ -74,9 +76,14 @@ class EmployeeController extends Controller
         $rows = $this->readEmployeeRows($file->getRealPath(), $file->getClientOriginalExtension());
 
         foreach ($rows as $row) {
+            $uniqueKey = [
+                'nik' => $row['nik'],
+                'function_category' => $row['function_category'],
+            ];
+
             Employee::query()->updateOrCreate(
-                ['nik' => $row['nik']],
-                Arr::except($row, ['nik']),
+                $uniqueKey,
+                Arr::except($row, array_keys($uniqueKey)),
             );
         }
 
@@ -95,6 +102,8 @@ class EmployeeController extends Controller
         $validated = $request->validate([
             'nik' => 'required|string',
             'name' => 'required|string',
+            'place_of_birth' => 'nullable|string',
+            'date_of_birth' => 'nullable|date',
             'position' => 'nullable|string',
             'pg' => 'nullable|string',
             'unit' => 'nullable|string',
@@ -103,8 +112,8 @@ class EmployeeController extends Controller
             'function_category' => 'nullable|string',
             'photo_jpg' => 'nullable|string',
             'ktp_pdf' => 'nullable|string',
-            'initial_avsec_competency_certificate' => 'nullable|string',
-            'latest_refresher_certificate' => 'nullable|string',
+            'competency_certificate' => 'nullable|string',
+            'latest_certificate' => 'nullable|string',
             'latest_education_certificate' => 'nullable|string',
             'license_book' => 'nullable|string',
             'curriculum_vitae' => 'nullable|string',
@@ -176,6 +185,8 @@ class EmployeeController extends Controller
             $rows[] = [
                 'nik' => $nik,
                 'name' => $name,
+                'place_of_birth' => $this->cellValue($values, $columns['place_of_birth'] ?? null),
+                'date_of_birth' => $this->parseDate($this->cellValue($values, $columns['date_of_birth'] ?? null), $lineNumber + 2),
                 'position' => $this->cellValue($values, $columns['position'] ?? null),
                 'pg' => $this->cellValue($values, $columns['pg'] ?? null),
                 'unit' => $unit ? Str::of($unit)->lower()->toString() : null,
@@ -461,6 +472,10 @@ class EmployeeController extends Controller
             'nik' => 'nik',
             'nama' => 'name',
             'name' => 'name',
+            'tempatlahir' => 'place_of_birth',
+            'placeofbirth' => 'place_of_birth',
+            'tanggallahir' => 'date_of_birth',
+            'dateofbirth' => 'date_of_birth',
             'jabatan' => 'position',
             'position' => 'position',
             'pg' => 'pg',
@@ -472,14 +487,19 @@ class EmployeeController extends Controller
             'fungsi' => 'function_category',
             'kategori' => 'function_category',
             'function' => 'function_category',
+            'license' => 'function_category',
+            'lisensi' => 'function_category',
             'pasfotojpg' => 'photo_jpg',
             'fotojpg' => 'photo_jpg',
+            'pasfoto' => 'photo_jpg',
             'ktppdf' => 'ktp_pdf',
-            'serifikatkompetensiinitialavsec' => 'initial_avsec_competency_certificate',
-            'sertifikatkompetensiinitialavsec' => 'initial_avsec_competency_certificate',
-            'kompetensiinitialavsec' => 'initial_avsec_competency_certificate',
-            'sertifikatrefresherterakhir' => 'latest_refresher_certificate',
-            'refresherterakhir' => 'latest_refresher_certificate',
+            'ktp' => 'ktp_pdf',
+            'serifikatkompetensi' => 'competency_certificate',
+            'sertifikatkompetensi' => 'competency_certificate',
+            'kompetensi' => 'competency_certificate',
+            'sertifikatterakhir' => 'latest_certificate',
+            'sertifikatterakhir' => 'latest_certificate',
+            'sertifikat' => 'latest_certificate',
             'ijazahpendidikanterakhir' => 'latest_education_certificate',
             'pendidikanterakhir' => 'latest_education_certificate',
             'bukulisensi' => 'license_book',

@@ -40,35 +40,25 @@ class TemplateLetterController extends Controller
         $template = self::TEMPLATES[$templateKey];
         $number = $this->cleanText($validated['number'] ?? 'Nomor surat belum diisi');
         $date = $this->cleanText($validated['date'] ?? 'Tangerang, '.now()->translatedFormat('d F Y'));
-        $subject = $this->cleanText($validated['subject'] ?? 'Permohonan Pelaksanaan Pelatihan');
         $body = $this->cleanText($validated['body'] ?? '');
 
-        if ($templateKey === 'bp3') {
-            $values = [
-                'nomor' => $number,
-                'isi' => $body,
-                'tanggal_surat' => $date,
-            ];
+        $values = [
+            'nomor' => $number,
+            'isi' => $body,
+            'tanggal_surat' => $date,
+        ];
 
-            try {
-                $disposition = $request->boolean('download') ? 'attachment' : 'inline';
-                $fileName = strtoupper($templateKey).'.docx';
+        try {
+            $disposition = $request->boolean('download') ? 'attachment' : 'inline';
+            $fileName = strtoupper($templateKey).'.docx';
 
-                return response()->file($docxGenerator->generateDocx($templateKey, $values), [
-                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    'Content-Disposition' => $disposition.'; filename="'.$fileName.'"',
-                ]);
-            } catch (RuntimeException $exception) {
-                abort(503, $exception->getMessage());
-            }
+            return response()->file($docxGenerator->generateDocx($templateKey, $values), [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'Content-Disposition' => $disposition.'; filename="'.$fileName.'"',
+            ]);
+        } catch (RuntimeException $exception) {
+            abort(503, $exception->getMessage());
         }
-
-        return view($template['view'], $this->templateData(
-            $template['label'],
-            $number,
-            $subject,
-            $body,
-        ));
     }
 
     private function cleanText(string $value): string
