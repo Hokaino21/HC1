@@ -11,7 +11,7 @@ import { home } from '@/routes';
 import { exportMandatoryTraining } from '@/routes/employees';
 import { pdf as templateLetterPdf } from '@/routes/template-surat';
 
-type TabId = 'dashboard' | 'karyawan' | 'diklat' | 'template';
+type TabId = 'karyawan';
 type UnitFilter = '' | 'teknik' | 'avsek' | 'pkpk' | 'arff' | 'amc';
 type SkpFilter = '' | 'expired' | 'active' | 'within_year';
 type TemplateLetterType = 'bp3' | 'ppic';
@@ -138,28 +138,10 @@ const templateLetterTypes: Array<{ id: TemplateLetterType; label: string }> = [
 
 const navigationItems: NavigationItem[] = [
     {
-        id: 'dashboard',
-        title: 'Dashboard',
-        icon: LayoutGridIcon,
-        placeholder: 'Konten Dashboard akan ditampilkan di sini',
-    },
-    {
         id: 'karyawan',
         title: 'Data Karyawan',
         icon: UsersIcon,
         placeholder: 'Konten Data Karyawan akan ditampilkan di sini',
-    },
-    {
-        id: 'diklat',
-        title: 'Diklat Mandatory',
-        icon: GraduationCapIcon,
-        placeholder: 'Konten Diklat Mandatory akan ditampilkan di sini',
-    },
-    {
-        id: 'template',
-        title: 'Template Surat',
-        icon: FileTextIcon,
-        placeholder: 'Konten Template Surat akan ditampilkan di sini',
     },
 ];
 
@@ -306,26 +288,10 @@ export default function Welcome({
                     <div
                         className={[
                             'flex-1 min-h-0 min-w-0 p-4 sm:p-6 lg:p-8',
-                            activeTab === 'karyawan'
-                                ? 'overflow-hidden'
-                                : 'overflow-y-auto',
+                            'overflow-hidden',
                         ].join(' ')}
                     >
-                        {activeTab === 'karyawan' ? (
-                            <EmployeeDataView
-                                employees={employees}
-                                unitFilter={filters.unit ?? ''}
-                            />
-                        ) : activeTab === 'diklat' ? (
-                            <MandatoryTrainingView employees={employees} />
-                        ) : activeTab === 'template' ? (
-                            <TemplateLetterView />
-                        ) : activeTab === 'dashboard' ? (
-                            <DashboardView employees={employees} />
-                        ) : (
-                            <PlaceholderPanel text={activeItem.placeholder} />
-                        )}
-                    </div>
+                        <EmployeeDataView
                 </main>
             </div>
         </>
@@ -2570,13 +2536,13 @@ function EmployeeDataView({
                                                         );
                                                         setSelectedArchive(
                                                             employee
-                                                                .avsec_archives?.[0] ??
+                                                                .avsec_archives[0] ??
                                                                 null,
                                                         );
                                                     }}
                                                     disabled={
-                                                        (employee.avsec_archives
-                                                            ?.length ?? 0) === 0
+                                                        employee.avsec_archives
+                                                            .length === 0
                                                     }
                                                     className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-amber-600 transition hover:bg-amber-50 hover:text-amber-700 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
                                                     aria-label={`Lihat arsip ${employee.name}`}
@@ -2777,7 +2743,7 @@ function EmployeeAvsecArchiveModal({
     onClose: () => void;
 }) {
     const archiveToDisplay =
-        selectedArchive ?? employee.avsec_archives?.[0] ?? null;
+        selectedArchive ?? employee.avsec_archives[0] ?? null;
 
     return (
         <div
@@ -2820,7 +2786,7 @@ function EmployeeAvsecArchiveModal({
                             </p>
                         </div>
                         <div className="max-h-[32vh] overflow-y-auto lg:max-h-none">
-                            {(employee.avsec_archives?.length ?? 0) > 0 ? (
+                            {employee.avsec_archives.length > 0 ? (
                                 <div className="divide-y divide-slate-200">
                                     {employee.avsec_archives.map((archive) => {
                                         const isSelected =

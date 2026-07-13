@@ -3,6 +3,35 @@
 @source '../views';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 
+html,
+body,
+#app {
+    height: 100%;
+    max-width: 100%;
+}
+
+html,
+body {
+    overflow-x: hidden;
+}
+
+body,
+#app {
+    overflow: hidden;
+}
+
+.employee-table-scroll {
+    scrollbar-gutter: stable;
+}
+
+.employee-table-scroll::-webkit-scrollbar:horizontal {
+    height: 0;
+}
+
+.employee-table-scroll::-webkit-scrollbar:vertical {
+    width: 10px;
+}
+
 @theme {
     --font-sans:
         'Instrument Sans', ui-sans-serif, system-ui, sans-serif,

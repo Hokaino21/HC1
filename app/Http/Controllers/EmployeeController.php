@@ -37,9 +37,10 @@ class EmployeeController extends Controller
     public function index(Request $request): Response
     {
         $unit = $request->string('unit')->toString();
-        $unit = $unit !== '' ? $unit : null;
+        $unit = $unit !== '' ? Str::lower($unit) : null;
 
         $employees = Employee::query()
+            ->with('avsecArchives')
             ->when($unit, fn ($query) => $query->where(fn ($query) => $query
                 ->whereRaw('LOWER(unit) = ?', [strtolower($unit)])
                 ->orWhereRaw('LOWER(function_category) = ?', [strtolower($unit)])
@@ -59,6 +60,34 @@ class EmployeeController extends Controller
                 'unit_label' => $employee->unit ? Str::of($employee->unit)->upper()->toString() : null,
                 'skp_expired' => $employee->skp_expired?->format('Y-m-d'),
                 'function_category' => $employee->function_category,
+                'training_schedule' => $employee->training_schedule,
+                'avsec_category' => $employee->avsec_category,
+                'avsec_archives' => $employee->avsecArchives->map(fn ($archive): array => [
+                    'id' => (string) $archive->id,
+                    'nik' => $archive->nik,
+                    'name' => $archive->name,
+                    'place_of_birth' => $archive->place_of_birth,
+                    'date_of_birth' => $archive->date_of_birth?->format('Y-m-d'),
+                    'position' => $archive->position,
+                    'pg' => $archive->pg,
+                    'unit' => $archive->unit,
+                    'location' => $archive->location,
+                    'skp_expired' => $archive->skp_expired?->format('Y-m-d'),
+                    'function_category' => $archive->function_category,
+                    'training_schedule' => $archive->training_schedule,
+                    'avsec_category' => $archive->avsec_category,
+                    'photo_jpg' => $archive->photo_jpg,
+                    'ktp_pdf' => $archive->ktp_pdf,
+                    'competency_certificate' => $archive->competency_certificate,
+                    'latest_certificate' => $archive->latest_certificate,
+                    'latest_education_certificate' => $archive->latest_education_certificate,
+                    'license_book' => $archive->license_book,
+                    'curriculum_vitae' => $archive->curriculum_vitae,
+                    'skck' => $archive->skck,
+                    'background_check' => $archive->background_check,
+                    'whatsapp_number' => $archive->whatsapp_number,
+                    'archived_at' => $archive->archived_at?->format('Y-m-d H:i:s'),
+                ])->values()->all(),
                 ...$this->employeeDocumentData($employee),
             ]);
 
@@ -110,6 +139,8 @@ class EmployeeController extends Controller
             'location' => 'nullable|string',
             'skp_expired' => 'nullable|date',
             'function_category' => 'nullable|string',
+            'training_schedule' => 'nullable|string',
+            'avsec_category' => 'nullable|string',
             'photo_jpg' => 'nullable|string',
             'ktp_pdf' => 'nullable|string',
             'competency_certificate' => 'nullable|string',
