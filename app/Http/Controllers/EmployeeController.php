@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ImportEmployeesRequest;
 use App\Models\Employee;
+use App\Models\EmployeeAvsecArchive;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -36,15 +37,18 @@ class EmployeeController extends Controller
 
     public function index(Request $request): Response
     {
-        $unit = $request->string('unit')->toString();
-        $unit = $unit !== '' ? Str::lower($unit) : null;
+        $license = $request->string('license')->toString();
+
+        if ($license === '') {
+            $license = $request->string('unit')->toString();
+        }
+
+        $license = $this->normalizeLicenseFilter($license);
 
         $employees = Employee::query()
             ->with('avsecArchives')
-            ->when($unit, fn ($query) => $query->where(fn ($query) => $query
-                ->whereRaw('LOWER(unit) = ?', [strtolower($unit)])
-                ->orWhereRaw('LOWER(function_category) = ?', [strtolower($unit)])
-            ))
+            ->when($license, fn ($query) => $query
+                ->whereRaw('LOWER(function_category) = ?', [$license]))
             ->orderBy('id')
             ->get()
             ->map(fn (Employee $employee): array => [
@@ -86,7 +90,7 @@ class EmployeeController extends Controller
                     'skck' => $archive->skck,
                     'background_check' => $archive->background_check,
                     'whatsapp_number' => $archive->whatsapp_number,
-                    'archived_at' => $archive->archived_at?->format('Y-m-d H:i:s'),
+                    'archived_at' => $archive->archived_at?->toIso8601String(),
                 ])->values()->all(),
                 ...$this->employeeDocumentData($employee),
             ]);
@@ -94,9 +98,24 @@ class EmployeeController extends Controller
         return Inertia::render('welcome', [
             'employees' => $employees,
             'filters' => [
-                'unit' => $unit,
+                'license' => $license,
             ],
         ]);
+    }
+
+    private function normalizeLicenseFilter(string $license): ?string
+    {
+        $normalized = Str::lower(trim($license));
+
+        if ($normalized === '') {
+            return null;
+        }
+
+        return match ($normalized) {
+            'avsek' => 'avsec',
+            'pkpk' => 'pkkp',
+            default => $normalized,
+        };
     }
 
     public function store(ImportEmployeesRequest $request): RedirectResponse
@@ -152,6 +171,36 @@ class EmployeeController extends Controller
             'background_check' => 'nullable|string',
             'whatsapp_number' => 'nullable|string',
         ]);
+
+        $employeeIsAvsec = in_array(
+            Str::lower(trim((string) $employee->function_category)),
+            ['avsec', 'avsek'],
+            true,
+        );
+        $nextAvsecCategory = Arr::get($validated, 'avsec_category');
+
+        if (
+            $employeeIsAvsec &&
+            $employee->avsec_category !== $nextAvsecCategory
+        ) {
+            EmployeeAvsecArchive::query()->create([
+                'employee_id' => $employee->id,
+                'nik' => $employee->nik,
+                'name' => $employee->name,
+                'place_of_birth' => $employee->place_of_birth,
+                'date_of_birth' => $employee->date_of_birth,
+                'position' => $employee->position,
+                'pg' => $employee->pg,
+                'unit' => $employee->unit,
+                'location' => $employee->location,
+                'skp_expired' => $employee->skp_expired,
+                'function_category' => $employee->function_category,
+                'training_schedule' => $employee->training_schedule,
+                'avsec_category' => $employee->avsec_category ?? 'Belum diisi',
+                ...$this->employeeDocumentData($employee),
+                'archived_at' => CarbonImmutable::now(),
+            ]);
+        }
 
         $employee->update($validated);
 

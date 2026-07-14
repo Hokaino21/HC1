@@ -104,11 +104,11 @@ it('updates employees when importing the same nik again', function () {
     ]);
 });
 
-it('filters employees by unit or function on the home page', function () {
+it('filters employees by license on the home page', function () {
     Employee::query()->create([
         'nik' => '1001',
         'name' => 'Budi Santoso',
-        'unit' => 'unit maintenance',
+        'unit' => 'avsec',
         'function_category' => 'TEKNIK',
     ]);
 
@@ -116,16 +116,16 @@ it('filters employees by unit or function on the home page', function () {
         'nik' => '1002',
         'name' => 'Sari Aminah',
         'position' => null,
-        'unit' => 'avsek',
+        'unit' => 'teknik',
         'location' => null,
-        'function_category' => 'Keamanan',
+        'function_category' => 'Avsec',
     ]);
 
-    $this->get(route('home', ['unit' => 'Teknik']))
+    $this->get(route('home', ['license' => 'Teknik']))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('welcome')
-            ->where('filters.unit', 'teknik')
+            ->where('filters.license', 'teknik')
             ->has('employees', 1)
             ->where('employees.0.nik', '1001')
         );

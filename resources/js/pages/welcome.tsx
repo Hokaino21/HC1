@@ -199,7 +199,7 @@ const employeeTableColumns = [
     'SKP Expired',
     'License',
     'Jadwal Diklat',
-    'Kategori Avsec',
+    'Kategori',
     ...employeeDocumentColumns.map((column) => column.label),
     'Aksi',
 ];
@@ -307,7 +307,7 @@ export default function Welcome({
                         className={[
                             'flex-1 min-h-0 min-w-0 p-4 sm:p-6 lg:p-8',
                             activeTab === 'karyawan'
-                                ? 'flex flex-col overflow-hidden'
+                                ? 'flex min-h-0 flex-col overflow-y-auto overflow-x-hidden'
                                 : 'overflow-y-auto',
                         ].join(' ')}
                     >
@@ -1993,6 +1993,10 @@ function EmployeeDataView({
         employee?: Employee;
         count?: number;
     } | null>(null);
+    const [avsecCategoryConfirm, setAvsecCategoryConfirm] = useState<{
+        employee: Employee;
+        nextCategory: string | null;
+    } | null>(null);
 
     function deleteSelectedEmployees() {
         const employeeIds = Array.from(checkedEmployeeIds);
@@ -2226,6 +2230,20 @@ function EmployeeDataView({
             return;
         }
 
+        setAvsecCategoryConfirm({
+            employee,
+            nextCategory: normalizedCategory,
+        });
+    }
+
+    function confirmAvsecCategoryChange() {
+        if (!avsecCategoryConfirm) {
+            return;
+        }
+
+        const employee = avsecCategoryConfirm.employee;
+        const normalizedCategory = avsecCategoryConfirm.nextCategory;
+
         router.put(
             update.url(employee.id),
             {
@@ -2256,6 +2274,9 @@ function EmployeeDataView({
             {
                 preserveScroll: true,
                 preserveState: true,
+                onFinish: () => {
+                    setAvsecCategoryConfirm(null);
+                },
             },
         );
     }
@@ -2277,7 +2298,7 @@ function EmployeeDataView({
     }
 
     return (
-        <section className="flex flex-1 min-h-0 min-w-0 flex-col gap-4 overflow-hidden">
+        <section className="flex min-w-0 flex-col gap-4">
             <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm xl:flex-row xl:items-end xl:justify-between">
                 <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
                     Cari (NIK, Nama, License)
@@ -2369,7 +2390,7 @@ function EmployeeDataView({
                     Hapus Terpilih ({checkedEmployeeIds.size})
                 </button>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col max-w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex min-h-[65vh] flex-1 flex-col max-w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                 <div
                     ref={topTableScrollRef}
                     onScroll={(event) =>
@@ -2500,7 +2521,7 @@ function EmployeeDataView({
                                             ) ? (
                                                 <div className="min-w-[180px]">
                                                     <label className="sr-only">
-                                                        Kategori Avsec{' '}
+                                                        Kategori{' '}
                                                         {employee.name}
                                                     </label>
                                                     <select
@@ -2508,14 +2529,21 @@ function EmployeeDataView({
                                                             employee.avsec_category ||
                                                             ''
                                                         }
-                                                        onChange={(event) =>
-                                                            updateAvsecCategory(
-                                                                employee,
+                                                        onChange={(event) => {
+                                                            const nextValue =
                                                                 event.target
                                                                     .value ||
-                                                                    null,
-                                                            )
-                                                        }
+                                                                null;
+
+                                                            event.target.value =
+                                                                employee.avsec_category ||
+                                                                '';
+
+                                                            updateAvsecCategory(
+                                                                employee,
+                                                                nextValue,
+                                                            );
+                                                        }}
                                                         className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                                                     >
                                                         <option value="">
@@ -2674,6 +2702,49 @@ function EmployeeDataView({
                                 className="inline-flex h-10 items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
                             >
                                 Ya, Hapus
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+            {avsecCategoryConfirm ? (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="avsec-category-confirm-title"
+                >
+                    <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-2xl">
+                        <h2
+                            id="avsec-category-confirm-title"
+                            className="mb-4 text-lg font-bold text-slate-900"
+                        >
+                            Konfirmasi Perubahan
+                        </h2>
+                        <p className="mb-6 text-sm text-slate-600">
+                            Ubah kategori {avsecCategoryConfirm.employee.name}{' '}
+                            ({avsecCategoryConfirm.employee.nik}) dari{' '}
+                            {avsecCategoryConfirm.employee.avsec_category ||
+                                'Belum diisi'}{' '}
+                            ke{' '}
+                            {avsecCategoryConfirm.nextCategory ||
+                                'Belum diisi'}
+                            ?
+                        </p>
+                        <div className="flex justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setAvsecCategoryConfirm(null)}
+                                className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                            >
+                                Batal
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmAvsecCategoryChange}
+                                className="inline-flex h-10 items-center justify-center rounded-lg bg-amber-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
+                            >
+                                Ya, Ubah
                             </button>
                         </div>
                     </div>
@@ -3170,7 +3241,8 @@ function EditEmployeeModal({
                         <div className="sm:col-span-1">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
                                 Unit
-                                <select
+                                <input
+                                    type="text"
                                     value={form.data.unit || ''}
                                     onChange={(e) =>
                                         form.setData(
@@ -3178,15 +3250,9 @@ function EditEmployeeModal({
                                             e.target.value || null,
                                         )
                                     }
+                                    placeholder="Contoh: Teknik"
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                                >
-                                    <option value="">Pilih Unit</option>
-                                    <option value="teknik">Teknik</option>
-                                    <option value="avsek">Avsec</option>
-                                    <option value="pkpk">PKPK</option>
-                                    <option value="arff">ARFF</option>
-                                    <option value="amc">AMC</option>
-                                </select>
+                                />
                             </label>
                         </div>
 
@@ -3261,7 +3327,7 @@ function EditEmployeeModal({
 
                         <div className="sm:col-span-1">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-                                Kategori Avsec
+                                Kategori
                                 <select
                                     value={form.data.avsec_category || ''}
                                     onChange={(e) =>
@@ -3275,7 +3341,7 @@ function EditEmployeeModal({
                                 >
                                     <option value="">
                                         {avsecLicenseSelected
-                                            ? 'Pilih Kategori Avsec'
+                                            ? 'Pilih kategori'
                                             : 'Hanya untuk license Avsec'}
                                     </option>
                                     <option value="Basic">Basic</option>
@@ -3558,13 +3624,18 @@ function formatArchiveDateTime(value: string | null) {
         return '-';
     }
 
-    const date = new Date(value.replace(' ', 'T'));
+    const normalizedValue = value.includes(' ') && !value.includes('T')
+        ? `${value.replace(' ', 'T')}Z`
+        : value;
+
+    const date = new Date(normalizedValue);
 
     if (Number.isNaN(date.getTime())) {
         return value;
     }
 
     return new Intl.DateTimeFormat('id-ID', {
+        timeZone: 'Asia/Jakarta',
         day: '2-digit',
         month: 'long',
         year: 'numeric',
