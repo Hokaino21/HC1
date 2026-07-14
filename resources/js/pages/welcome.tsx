@@ -307,7 +307,7 @@ export default function Welcome({
                         className={[
                             'flex-1 min-h-0 min-w-0 p-4 sm:p-6 lg:p-8',
                             activeTab === 'karyawan'
-                                ? 'overflow-hidden'
+                                ? 'flex flex-col overflow-hidden'
                                 : 'overflow-y-auto',
                         ].join(' ')}
                     >
@@ -1901,7 +1901,6 @@ function EmployeeDataView({
 }) {
     const topTableScrollRef = useRef<HTMLDivElement>(null);
     const tableScrollRef = useRef<HTMLDivElement>(null);
-    const bottomTableScrollRef = useRef<HTMLDivElement>(null);
     const scrollSyncLockRef = useRef(false);
     const [uploadInputKey, setUploadInputKey] = useState(0);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -1962,7 +1961,7 @@ function EmployeeDataView({
 
         scrollSyncLockRef.current = true;
 
-        [topTableScrollRef.current, tableScrollRef.current, bottomTableScrollRef.current]
+        [topTableScrollRef.current, tableScrollRef.current]
             .filter((element): element is HTMLDivElement => element !== null)
             .forEach((element) => {
                 if (element !== source) {
@@ -2278,7 +2277,7 @@ function EmployeeDataView({
     }
 
     return (
-        <section className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-hidden">
+        <section className="flex flex-1 min-h-0 min-w-0 flex-col gap-4 overflow-hidden">
             <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm xl:flex-row xl:items-end xl:justify-between">
                 <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
                     Cari (NIK, Nama, License)
@@ -2610,18 +2609,6 @@ function EmployeeDataView({
                             )}
                         </tbody>
                     </table>
-                </div>
-                <div
-                    ref={bottomTableScrollRef}
-                    onScroll={(event) =>
-                        syncTableScroll(event.currentTarget)
-                    }
-                    className="overflow-x-auto overflow-y-hidden border-t border-slate-200 bg-slate-50"
-                >
-                    <div
-                        className="h-4 min-w-[2200px]"
-                        style={{ width: `${tableScrollWidth}px` }}
-                    />
                 </div>
             </div>
 

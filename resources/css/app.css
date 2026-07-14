@@ -8,6 +8,8 @@ body,
 #app {
     height: 100%;
     max-width: 100%;
+    margin: 0;
+    overflow: hidden;
 }
 
 html,
@@ -24,9 +26,6 @@ body,
     scrollbar-gutter: stable;
 }
 
-.employee-table-scroll::-webkit-scrollbar:horizontal {
-    height: 0;
-}
 
 .employee-table-scroll::-webkit-scrollbar:vertical {
     width: 10px;
