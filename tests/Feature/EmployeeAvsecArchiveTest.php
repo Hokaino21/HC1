@@ -11,6 +11,7 @@ it('archives employee data before updating avsec category', function () {
         'name' => 'Andi Pratama',
         'function_category' => 'Avsec',
         'avsec_category' => 'Basic',
+        'gender' => 'Laki-laki',
     ]);
 
     $this->put(route('employees.update', $employee), [
@@ -24,6 +25,7 @@ it('archives employee data before updating avsec category', function () {
         'avsec_category' => 'Basic',
         'nik' => $employee->nik,
         'name' => $employee->name,
+        'gender' => 'Laki-laki',
         'function_category' => $employee->function_category,
     ]);
 

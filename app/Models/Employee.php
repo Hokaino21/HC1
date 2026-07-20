@@ -2,9 +2,9 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
  * @property string $name
  * @property string|null $place_of_birth
  * @property string|null $date_of_birth
+ * @property string|null $gender
  * @property string|null $position
  * @property string|null $pg
  * @property string|null $unit
@@ -37,6 +38,7 @@ use Illuminate\Support\Carbon;
     'name',
     'place_of_birth',
     'date_of_birth',
+    'gender',
     'position',
     'pg',
     'unit',

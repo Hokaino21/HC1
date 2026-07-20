@@ -47,8 +47,6 @@ class EmployeeController extends Controller
 
         $employees = Employee::query()
             ->with('avsecArchives')
-            ->when($license, fn ($query) => $query
-                ->whereRaw('LOWER(function_category) = ?', [$license]))
             ->orderBy('id')
             ->get()
             ->map(fn (Employee $employee): array => [
@@ -57,6 +55,7 @@ class EmployeeController extends Controller
                 'name' => $employee->name,
                 'place_of_birth' => $employee->place_of_birth,
                 'date_of_birth' => $employee->date_of_birth?->format('Y-m-d'),
+                'gender' => $employee->gender,
                 'position' => $employee->position,
                 'pg' => $employee->pg,
                 'unit' => $employee->unit,
@@ -72,6 +71,7 @@ class EmployeeController extends Controller
                     'name' => $archive->name,
                     'place_of_birth' => $archive->place_of_birth,
                     'date_of_birth' => $archive->date_of_birth?->format('Y-m-d'),
+                    'gender' => $archive->gender,
                     'position' => $archive->position,
                     'pg' => $archive->pg,
                     'unit' => $archive->unit,
@@ -118,6 +118,22 @@ class EmployeeController extends Controller
         };
     }
 
+    private function normalizeGender(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $normalized = Str::lower(trim($value));
+
+        return match ($normalized) {
+            '', '-' => null,
+            'l', 'lk', 'laki', 'lakilaki', 'pria', 'male', 'm' => 'Laki-laki',
+            'p', 'pr', 'perempuan', 'wanita', 'female', 'f' => 'Perempuan',
+            default => $value,
+        };
+    }
+
     public function store(ImportEmployeesRequest $request): RedirectResponse
     {
         $file = $request->file('employees_file');
@@ -152,6 +168,7 @@ class EmployeeController extends Controller
             'name' => 'required|string',
             'place_of_birth' => 'nullable|string',
             'date_of_birth' => 'nullable|date',
+            'gender' => 'nullable|string',
             'position' => 'nullable|string',
             'pg' => 'nullable|string',
             'unit' => 'nullable|string',
@@ -189,6 +206,7 @@ class EmployeeController extends Controller
                 'name' => $employee->name,
                 'place_of_birth' => $employee->place_of_birth,
                 'date_of_birth' => $employee->date_of_birth,
+                'gender' => $employee->gender,
                 'position' => $employee->position,
                 'pg' => $employee->pg,
                 'unit' => $employee->unit,
@@ -267,6 +285,7 @@ class EmployeeController extends Controller
                 'name' => $name,
                 'place_of_birth' => $this->cellValue($values, $columns['place_of_birth'] ?? null),
                 'date_of_birth' => $this->parseDate($this->cellValue($values, $columns['date_of_birth'] ?? null), $lineNumber + 2),
+                'gender' => $this->normalizeGender($this->cellValue($values, $columns['gender'] ?? null)),
                 'position' => $this->cellValue($values, $columns['position'] ?? null),
                 'pg' => $this->cellValue($values, $columns['pg'] ?? null),
                 'unit' => $unit ? Str::of($unit)->lower()->toString() : null,
@@ -556,6 +575,9 @@ class EmployeeController extends Controller
             'placeofbirth' => 'place_of_birth',
             'tanggallahir' => 'date_of_birth',
             'dateofbirth' => 'date_of_birth',
+            'jeniskelamin' => 'gender',
+            'gender' => 'gender',
+            'sex' => 'gender',
             'jabatan' => 'position',
             'position' => 'position',
             'pg' => 'pg',

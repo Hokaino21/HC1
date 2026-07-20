@@ -14,6 +14,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $name
  * @property string|null $place_of_birth
  * @property Carbon|null $date_of_birth
+ * @property string|null $gender
  * @property string|null $position
  * @property string|null $pg
  * @property string|null $unit
@@ -42,6 +43,7 @@ use Illuminate\Support\Carbon;
     'name',
     'place_of_birth',
     'date_of_birth',
+    'gender',
     'position',
     'pg',
     'unit',
