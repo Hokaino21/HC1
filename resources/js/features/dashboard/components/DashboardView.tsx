@@ -1,12 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Employee } from '@/types/welcome';
 import { getSkpExpiryStatus } from '@/features/shared/utils';
 import { ShieldCheckIcon, CalendarIcon, MapPinIcon, AwardIcon, AlertTriangleIcon, UsersIcon } from '@/features/shared/components/icons';
 
 export default function DashboardView({ employees = [] }: { employees: Employee[] }) {
-    const [dashboardLicenseFilter, setDashboardLicenseFilter] =
+    const [dashboardLicenseQuery, setDashboardLicenseQuery] = useState('');
+    const [dashboardCategoryFilter, setDashboardCategoryFilter] =
         useState<string>('all');
-    const [avsecFilter, setAvsecFilter] = useState<string>('all');
+    const [dashboardSubLicenseFilter, setDashboardSubLicenseFilter] =
+        useState<string>('all');
 
     const licenseTypes = useMemo(() => {
         return Array.from(
@@ -20,29 +22,96 @@ export default function DashboardView({ employees = [] }: { employees: Employee[
         );
     }, [employees]);
 
-    // 1. Filter employees based on dashboard license and Avsec category
-    const filteredEmployees = useMemo(() => {
-        return employees.filter((employee) => {
-            if (dashboardLicenseFilter !== 'all') {
-                const matchesLicense =
-                    normalizeDashboardLicense(employee.function_category) ===
-                    dashboardLicenseFilter;
+    const licenseFilteredEmployees = useMemo(() => {
+        return employees.filter((employee) =>
+            matchesDashboardLicenseQuery(
+                employee.function_category,
+                dashboardLicenseQuery,
+            ),
+        );
+    }, [employees, dashboardLicenseQuery]);
 
-                if (!matchesLicense) {
-                    return false;
-                }
+    const categoryOptions = useMemo(() => {
+        return Array.from(
+            new Set(
+                licenseFilteredEmployees
+                    .map((employee) => employee.avsec_category?.trim())
+                    .filter(
+                        (value): value is string =>
+                            Boolean(value) && value.length > 0,
+                    ),
+            ),
+        ).sort((left, right) =>
+            left.localeCompare(right, 'id-ID', { sensitivity: 'base' }),
+        );
+    }, [licenseFilteredEmployees]);
+
+    const subLicenseOptions = useMemo(() => {
+        return Array.from(
+            new Set(
+                licenseFilteredEmployees
+                    .map((employee) => employee.sub_license?.trim())
+                    .filter(
+                        (value): value is string =>
+                            Boolean(value) && value.length > 0,
+                    ),
+            ),
+        ).sort((left, right) =>
+            left.localeCompare(right, 'id-ID', { sensitivity: 'base' }),
+        );
+    }, [licenseFilteredEmployees]);
+
+    useEffect(() => {
+        if (
+            dashboardCategoryFilter !== 'all' &&
+            !categoryOptions.some((option) =>
+                hasMatchingLabel(option, dashboardCategoryFilter),
+            )
+        ) {
+            setDashboardCategoryFilter('all');
+        }
+    }, [categoryOptions, dashboardCategoryFilter]);
+
+    useEffect(() => {
+        if (
+            dashboardSubLicenseFilter !== 'all' &&
+            !subLicenseOptions.some((option) =>
+                hasMatchingLabel(option, dashboardSubLicenseFilter),
+            )
+        ) {
+            setDashboardSubLicenseFilter('all');
+        }
+    }, [dashboardSubLicenseFilter, subLicenseOptions]);
+
+    const filteredEmployees = useMemo(() => {
+        return licenseFilteredEmployees.filter((employee) => {
+            if (
+                dashboardCategoryFilter !== 'all' &&
+                !hasMatchingLabel(
+                    employee.avsec_category,
+                    dashboardCategoryFilter,
+                )
+            ) {
+                return false;
             }
 
-            if (avsecFilter !== 'all') {
-                return (
-                    employee.avsec_category?.toLowerCase() ===
-                    avsecFilter.toLowerCase()
-                );
+            if (
+                dashboardSubLicenseFilter !== 'all' &&
+                !hasMatchingLabel(
+                    employee.sub_license,
+                    dashboardSubLicenseFilter,
+                )
+            ) {
+                return false;
             }
 
             return true;
         });
-    }, [employees, avsecFilter, dashboardLicenseFilter]);
+    }, [
+        dashboardCategoryFilter,
+        dashboardSubLicenseFilter,
+        licenseFilteredEmployees,
+    ]);
 
     // 2. Summary stats
     const stats = useMemo(() => {
@@ -151,6 +220,128 @@ export default function DashboardView({ employees = [] }: { employees: Employee[
         };
     }, [filteredEmployees]);
 
+    const categoryBreakdown = useMemo(() => {
+        const counts: Record<string, number> = {};
+
+        filteredEmployees.forEach((employee) => {
+            const category = employee.avsec_category?.trim() || 'Tanpa Kategori';
+
+            counts[category] = (counts[category] || 0) + 1;
+        });
+
+        return Object.entries(counts)
+            .map(([name, count]) => ({ name, count }))
+            .sort((left, right) => {
+                if (right.count !== left.count) {
+                    return right.count - left.count;
+                }
+
+                return left.name.localeCompare(right.name, 'id-ID', {
+                    sensitivity: 'base',
+                });
+            });
+    }, [filteredEmployees]);
+
+    const subLicenseBreakdown = useMemo(() => {
+        const counts: Record<string, number> = {};
+
+        filteredEmployees.forEach((employee) => {
+            const subLicense =
+                employee.sub_license?.trim() || 'Tanpa Sub License';
+
+            counts[subLicense] = (counts[subLicense] || 0) + 1;
+        });
+
+        return Object.entries(counts)
+            .map(([name, count]) => ({ name, count }))
+            .sort((left, right) => {
+                if (right.count !== left.count) {
+                    return right.count - left.count;
+                }
+
+                return left.name.localeCompare(right.name, 'id-ID', {
+                    sensitivity: 'base',
+                });
+            });
+    }, [filteredEmployees]);
+
+    const detailBreakdown = useMemo(() => {
+        const counts = new Map<
+            string,
+            {
+                license: string;
+                category: string;
+                subLicense: string;
+                count: number;
+                active: number;
+                warning: number;
+                expired: number;
+                noData: number;
+            }
+        >();
+
+        filteredEmployees.forEach((employee) => {
+            const license = formatDashboardLicenseLabel(
+                normalizeDashboardLicense(employee.function_category) ??
+                    employee.function_category?.trim() ??
+                    null,
+            );
+            const category = employee.avsec_category?.trim() || 'Tanpa Kategori';
+            const subLicense =
+                employee.sub_license?.trim() || 'Tanpa Sub License';
+            const key = [
+                license.toLowerCase(),
+                category.toLowerCase(),
+                subLicense.toLowerCase(),
+            ].join('::');
+            const status = getSkpExpiryStatus(employee.skp_expired);
+
+            if (!counts.has(key)) {
+                counts.set(key, {
+                    license,
+                    category,
+                    subLicense,
+                    count: 0,
+                    active: 0,
+                    warning: 0,
+                    expired: 0,
+                    noData: 0,
+                });
+            }
+
+            const current = counts.get(key);
+
+            if (!current) {
+                return;
+            }
+
+            current.count += 1;
+
+            if (!employee.skp_expired) {
+                current.noData += 1;
+            } else if (status?.tone === 'expired') {
+                current.expired += 1;
+            } else if (status?.tone === 'warning') {
+                current.warning += 1;
+            } else {
+                current.active += 1;
+            }
+        });
+
+        return Array.from(counts.values()).sort((left, right) => {
+            if (right.count !== left.count) {
+                return right.count - left.count;
+            }
+
+            return `${left.license} ${left.category} ${left.subLicense}`
+                .localeCompare(
+                    `${right.license} ${right.category} ${right.subLicense}`,
+                    'id-ID',
+                    { sensitivity: 'base' },
+                );
+        });
+    }, [filteredEmployees]);
+
     // 6. Stacked status per license type
     const licenseTypeStatuses = useMemo(() => {
         const statuses: Record<
@@ -213,55 +404,94 @@ export default function DashboardView({ employees = [] }: { employees: Employee[
                             personel bandara secara real-time.
                         </p>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3 sm:grid-cols-3">
                         <label className="flex min-w-[180px] flex-col gap-1.5 text-xs font-semibold tracking-wider text-slate-400 uppercase">
                             Filter License
-                            <select
-                                value={dashboardLicenseFilter}
+                            <input
+                                type="text"
+                                list="dashboard-license-options"
+                                value={dashboardLicenseQuery}
                                 onChange={(event) =>
-                                    setDashboardLicenseFilter(
+                                    setDashboardLicenseQuery(event.target.value)
+                                }
+                                placeholder="Ketik license, misal Teknik"
+                                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold normal-case text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                            />
+                            <datalist id="dashboard-license-options">
+                                {licenseTypes.map((license) => (
+                                    <option
+                                        key={license}
+                                        value={formatDashboardLicenseLabel(
+                                            license,
+                                        )}
+                                    />
+                                ))}
+                            </datalist>
+                        </label>
+                        <label className="flex min-w-[180px] flex-col gap-1.5 text-xs font-semibold tracking-wider text-slate-400 uppercase">
+                            Filter Kategori
+                            <select
+                                value={dashboardCategoryFilter}
+                                onChange={(event) =>
+                                    setDashboardCategoryFilter(
                                         event.target.value,
                                     )
                                 }
                                 className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold normal-case text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
                             >
-                                <option value="all">Semua License</option>
-                                {licenseTypes.map((license) => (
-                                    <option key={license} value={license}>
-                                        {formatDashboardLicenseLabel(license)}
+                                <option value="all">Semua Kategori</option>
+                                {categoryOptions.map((category) => (
+                                    <option key={category} value={category}>
+                                        {category}
                                     </option>
                                 ))}
                             </select>
                         </label>
-                        <div className="flex shrink-0 flex-col gap-1.5">
-                            <span className="text-xs font-semibold tracking-wider text-slate-400 uppercase">
-                                Filter Kategori
-                            </span>
-                            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
-                                {['all', 'Senior', 'Basic', 'Junior'].map(
-                                    (level) => (
-                                        <button
-                                            key={level}
-                                            type="button"
-                                            onClick={() =>
-                                                setAvsecFilter(level)
-                                            }
-                                            className={[
-                                                'rounded-md px-3 py-1.5 text-xs font-semibold transition-all duration-150',
-                                                avsecFilter === level
-                                                    ? 'bg-white text-[#4863df] shadow-sm ring-1 ring-slate-200/50'
-                                                    : 'text-slate-500 hover:text-slate-800',
-                                            ].join(' ')}
-                                        >
-                                            {level === 'all'
-                                                ? 'Semua Kategori'
-                                                : level}
-                                        </button>
-                                    ),
-                                )}
-                            </div>
-                        </div>
+                        <label className="flex min-w-[180px] flex-col gap-1.5 text-xs font-semibold tracking-wider text-slate-400 uppercase">
+                            Filter Sub License
+                            <select
+                                value={dashboardSubLicenseFilter}
+                                onChange={(event) =>
+                                    setDashboardSubLicenseFilter(
+                                        event.target.value,
+                                    )
+                                }
+                                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold normal-case text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                            >
+                                <option value="all">
+                                    Semua Sub License
+                                </option>
+                                {subLicenseOptions.map((subLicense) => (
+                                    <option
+                                        key={subLicense}
+                                        value={subLicense}
+                                    >
+                                        {subLicense}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
                     </div>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
+                        License:{' '}
+                        {dashboardLicenseQuery.trim()
+                            ? dashboardLicenseQuery
+                            : 'Semua License'}
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
+                        Kategori:{' '}
+                        {dashboardCategoryFilter === 'all'
+                            ? 'Semua Kategori'
+                            : dashboardCategoryFilter}
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
+                        Sub License:{' '}
+                        {dashboardSubLicenseFilter === 'all'
+                            ? 'Semua Sub License'
+                            : dashboardSubLicenseFilter}
+                    </span>
                 </div>
             </div>
 
@@ -313,6 +543,135 @@ export default function DashboardView({ employees = [] }: { employees: Employee[
                     icon={<UsersIcon className="h-6 w-6 text-fuchsia-500" />}
                     colorClass="border-l-4 border-fuchsia-500 bg-fuchsia-50/10"
                 />
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-12">
+                <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-4">
+                    <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                        <AwardIcon className="h-5 w-5 text-[#4863df]" />
+                        <h3 className="font-bold text-slate-800">
+                            Rincian Kategori
+                        </h3>
+                    </div>
+                    {categoryBreakdown.length > 0 ? (
+                        <div className="flex max-h-[280px] flex-col gap-3 overflow-y-auto pr-1">
+                            {categoryBreakdown.map((item) => (
+                                <SummaryBreakdownRow
+                                    key={item.name}
+                                    label={item.name}
+                                    count={item.count}
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        <EmptyBreakdown text="Belum ada kategori pada hasil filter." />
+                    )}
+                </div>
+
+                <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-4">
+                    <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                        <AwardIcon className="h-5 w-5 text-cyan-500" />
+                        <h3 className="font-bold text-slate-800">
+                            Rincian Sub License
+                        </h3>
+                    </div>
+                    {subLicenseBreakdown.length > 0 ? (
+                        <div className="flex max-h-[280px] flex-col gap-3 overflow-y-auto pr-1">
+                            {subLicenseBreakdown.map((item) => (
+                                <SummaryBreakdownRow
+                                    key={item.name}
+                                    label={item.name}
+                                    count={item.count}
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        <EmptyBreakdown text="Belum ada sub license pada hasil filter." />
+                    )}
+                </div>
+
+                <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-4">
+                    <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                        <UsersIcon className="h-5 w-5 text-emerald-500" />
+                        <h3 className="font-bold text-slate-800">
+                            Ringkasan Filter
+                        </h3>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                        <MiniInfoCard
+                            label="Data Ditampilkan"
+                            value={filteredEmployees.length}
+                        />
+                        <MiniInfoCard
+                            label="Jenis Kategori"
+                            value={categoryBreakdown.length}
+                        />
+                        <MiniInfoCard
+                            label="Jenis Sub License"
+                            value={subLicenseBreakdown.length}
+                        />
+                    </div>
+                </div>
+            </div>
+
+            <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                    <AwardIcon className="h-5 w-5 text-indigo-500" />
+                    <h3 className="font-bold text-slate-800">
+                        Rincian License, Kategori, dan Sub License
+                    </h3>
+                </div>
+                {detailBreakdown.length > 0 ? (
+                    <div className="flex max-h-[360px] flex-col gap-3 overflow-y-auto pr-1">
+                        {detailBreakdown.map((item) => (
+                            <div
+                                key={`${item.license}-${item.category}-${item.subLicense}`}
+                                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                            >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex flex-wrap gap-2">
+                                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                                            License: {item.license}
+                                        </span>
+                                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                                            Kategori: {item.category}
+                                        </span>
+                                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                                            Sub License: {item.subLicense}
+                                        </span>
+                                    </div>
+                                    <span className="text-sm font-bold text-slate-900">
+                                        {item.count} personel
+                                    </span>
+                                </div>
+                                <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+                                    <StatusPill
+                                        label="Aktif"
+                                        count={item.active}
+                                        className="bg-emerald-50 text-emerald-700"
+                                    />
+                                    <StatusPill
+                                        label="Warning"
+                                        count={item.warning}
+                                        className="bg-amber-50 text-amber-700"
+                                    />
+                                    <StatusPill
+                                        label="Expired"
+                                        count={item.expired}
+                                        className="bg-rose-50 text-rose-700"
+                                    />
+                                    <StatusPill
+                                        label="Tanpa Data"
+                                        count={item.noData}
+                                        className="bg-slate-100 text-slate-700"
+                                    />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <EmptyBreakdown text="Belum ada kombinasi detail untuk filter yang dipilih." />
+                )}
             </div>
 
             {/* FIRST DASHBOARD: Distribusi Lokasi & Lisensi */}
@@ -417,11 +776,9 @@ export default function DashboardView({ employees = [] }: { employees: Employee[
                             </h3>
                         </div>
                         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                            {dashboardLicenseFilter === 'all'
-                                ? 'Semua License'
-                                : formatDashboardLicenseLabel(
-                                      dashboardLicenseFilter,
-                                  )}
+                            {dashboardLicenseQuery.trim()
+                                ? dashboardLicenseQuery
+                                : 'Semua License'}
                         </span>
                     </div>
 
@@ -784,6 +1141,68 @@ function LegendItem({
     );
 }
 
+function SummaryBreakdownRow({
+    label,
+    count,
+}: {
+    label: string;
+    count: number;
+}) {
+    return (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <span className="text-sm font-semibold text-slate-700">
+                {label}
+            </span>
+            <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
+                {count}
+            </span>
+        </div>
+    );
+}
+
+function MiniInfoCard({
+    label,
+    value,
+}: {
+    label: string;
+    value: number;
+}) {
+    return (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
+                {label}
+            </p>
+            <p className="mt-1 text-2xl font-extrabold text-slate-900">
+                {value}
+            </p>
+        </div>
+    );
+}
+
+function EmptyBreakdown({ text }: { text: string }) {
+    return (
+        <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-sm font-medium text-slate-400">
+            {text}
+        </div>
+    );
+}
+
+function StatusPill({
+    label,
+    count,
+    className,
+}: {
+    label: string;
+    count: number;
+    className: string;
+}) {
+    return (
+        <span className={['rounded-full px-3 py-1', className].join(' ')}>
+            {label}: {count}
+        </span>
+    );
+}
+
 function normalizeDashboardLicense(value: string | null | undefined): string | null {
     const normalized = value?.trim().toLowerCase();
 
@@ -807,6 +1226,39 @@ function normalizeDashboardLicense(value: string | null | undefined): string | n
         default:
             return normalized ?? null;
     }
+}
+
+function normalizeDashboardSearchValue(value: string | null | undefined): string {
+    return value?.trim().toLowerCase() ?? '';
+}
+
+function hasMatchingLabel(
+    value: string | null | undefined,
+    query: string | null | undefined,
+): boolean {
+    return normalizeDashboardSearchValue(value) ===
+        normalizeDashboardSearchValue(query);
+}
+
+function matchesDashboardLicenseQuery(
+    value: string | null | undefined,
+    query: string | null | undefined,
+): boolean {
+    const normalizedQuery = normalizeDashboardSearchValue(query);
+
+    if (!normalizedQuery) {
+        return true;
+    }
+
+    const normalizedLicense = normalizeDashboardLicense(value);
+    const formattedLicense = formatDashboardLicenseLabel(normalizedLicense);
+    const rawValue = normalizeDashboardSearchValue(value);
+    const formattedValue = normalizeDashboardSearchValue(formattedLicense);
+    const canonicalValue = normalizeDashboardSearchValue(normalizedLicense);
+
+    return rawValue.includes(normalizedQuery) ||
+        formattedValue.includes(normalizedQuery) ||
+        canonicalValue.includes(normalizedQuery);
 }
 
 function formatDashboardLicenseLabel(value: string | null | undefined): string {
