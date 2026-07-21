@@ -20,6 +20,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $location
  * @property Carbon|null $skp_expired
  * @property string|null $function_category
+ * @property string|null $sub_license
  * @property string|null $photo_jpg
  * @property string|null $ktp_pdf
  * @property string|null $competency_certificate
@@ -45,6 +46,7 @@ use Illuminate\Support\Carbon;
     'location',
     'skp_expired',
     'function_category',
+    'sub_license',
     'training_schedule',
     'avsec_category',
     'photo_jpg',

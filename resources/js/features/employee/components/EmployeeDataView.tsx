@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, ChangeEvent, FormEvent, Fragment, useEffect } from 'react';
 import { router, useForm } from '@inertiajs/react';
-import { Employee, LicenseFilter, EmployeeAvsecArchive, EmployeeDocumentColumn } from '@/types/welcome';
-import { store, update, destroy } from '@/actions/App/Http/Controllers/EmployeeController';
+import { Employee, LicenseFilter, MultiLicenseFilter, EmployeeAvsecArchive, EmployeeDocumentColumn } from '@/types/welcome';
+import { store, update, destroy, downloadTemplate } from '@/actions/App/Http/Controllers/EmployeeController';
 import { UploadIcon, TrashIcon, PencilIcon, ArchiveIcon, CloseIcon, AlertTriangleIcon } from '@/features/shared/components/icons';
 import { SkpExpiryCell } from '@/features/shared/components/SkpExpiryCell';
 import { parseLocalDate, getSkpExpiryStatus } from '@/features/shared/utils';
@@ -28,6 +28,26 @@ const employeeDocumentColumns: EmployeeDocumentColumn[] = [
     { key: 'whatsapp_number', label: 'Nomor WA' },
 ];
 
+const teknikSubLicenseOptions = [
+    'A2B',
+    'ACS',
+    'ADG',
+    'ALS',
+    'BAF',
+    'CCR',
+    'FSD',
+    'FSU',
+    'GNS',
+    'IFS',
+    'P3KP',
+    'P3UKP',
+    'PBC',
+    'PSS',
+    'TQM',
+    'TRD',
+    'WPS',
+] as const;
+
 const employeeTableColumns = [
     'Ceklis',
     'No',
@@ -43,6 +63,7 @@ const employeeTableColumns = [
     'SKP Expired',
     'License',
     'Jadwal Diklat',
+    'Sub License',
     'Kategori',
     ...employeeDocumentColumns.map((column) => column.label),
     'Aksi',
@@ -71,6 +92,8 @@ export default function EmployeeDataView({
     const [searchQuery, setSearchQuery] = useState('');
     const [licenseFilter, setLicenseFilter] =
         useState<LicenseFilter>(initialLicenseFilter);
+    const [multiLicenseFilter, setMultiLicenseFilter] =
+        useState<MultiLicenseFilter>('');
     const [skpFilter, setSkpFilter] = useState<SkpFilter>('');
     const [showAllAlerts, setShowAllAlerts] = useState(false);
     const [checkedEmployeeIds, setCheckedEmployeeIds] = useState<Set<number>>(
@@ -110,7 +133,7 @@ export default function EmployeeDataView({
             window.removeEventListener('resize', updateTableScrollWidth);
             resizeObserver?.disconnect();
         };
-    }, [employees.length, licenseFilter, searchQuery, skpFilter]);
+    }, [employees.length, licenseFilter, multiLicenseFilter, searchQuery, skpFilter]);
 
     useEffect(() => {
         setLicenseFilter(initialLicenseFilter);
@@ -213,7 +236,24 @@ export default function EmployeeDataView({
     }
 
     const filteredEmployees = useMemo(() => {
-        let filtered = employees;
+        const licenseCountsByName = employees.reduce<Map<string, number>>(
+            (counts, employee) => {
+                const nameKey = normalizeNameValue(employee.name);
+                const currentCount = counts.get(nameKey) ?? 0;
+                const fallbackCount =
+                    employee.has_multiple_licenses ||
+                    employee.license_count_by_name > 1
+                        ? Math.max(employee.license_count_by_name, 2)
+                        : 1;
+
+                counts.set(nameKey, Math.max(currentCount, fallbackCount));
+
+                return counts;
+            },
+            new Map(),
+        );
+
+        let filtered = [...employees];
 
         if (licenseFilter) {
             filtered = filtered.filter(
@@ -221,6 +261,20 @@ export default function EmployeeDataView({
                     normalizeLicenseValue(employee.function_category) ===
                     licenseFilter,
             );
+        }
+
+        if (multiLicenseFilter === 'multiple') {
+            filtered = filtered.filter((employee) => {
+                const metadataCount = employee.license_count_by_name;
+                const countByName =
+                    metadataCount > 0
+                        ? metadataCount
+                        : (licenseCountsByName.get(
+                              normalizeNameValue(employee.name),
+                          ) ?? 0);
+
+                return employee.has_multiple_licenses || countByName > 1;
+            });
         }
 
         // Apply search query
@@ -258,8 +312,8 @@ export default function EmployeeDataView({
             });
         }
 
-        return filtered;
-    }, [employees, licenseFilter, searchQuery, skpFilter]);
+        return filtered.sort(compareEmployees);
+    }, [employees, licenseFilter, multiLicenseFilter, searchQuery, skpFilter]);
 
     const editForm = useForm<{
         nik: string;
@@ -273,6 +327,7 @@ export default function EmployeeDataView({
         location: string | null;
         skp_expired: string | null;
         function_category: string | null;
+        sub_license: string | null;
         training_schedule: string | null;
         avsec_category: string | null;
         photo_jpg: string | null;
@@ -297,6 +352,7 @@ export default function EmployeeDataView({
         location: null,
         skp_expired: null,
         function_category: null,
+        sub_license: null,
         training_schedule: null,
         avsec_category: null,
         photo_jpg: null,
@@ -358,6 +414,7 @@ export default function EmployeeDataView({
             location: employee.location,
             skp_expired: employee.skp_expired,
             function_category: employee.function_category,
+            sub_license: employee.sub_license,
             training_schedule: employee.training_schedule,
             avsec_category: employee.avsec_category,
             photo_jpg: employee.photo_jpg,
@@ -384,7 +441,7 @@ export default function EmployeeDataView({
     ) {
         const normalizedCategory = nextCategory || null;
 
-        if (!isAvsecLicense(employee.function_category)) {
+        if (!supportsCategory(employee.function_category)) {
             return;
         }
 
@@ -420,6 +477,7 @@ export default function EmployeeDataView({
                 location: employee.location,
                 skp_expired: employee.skp_expired,
                 function_category: employee.function_category,
+                sub_license: employee.sub_license,
                 training_schedule: employee.training_schedule,
                 avsec_category: normalizedCategory,
                 photo_jpg: employee.photo_jpg,
@@ -489,7 +547,7 @@ export default function EmployeeDataView({
                     </select>
                 </label>
                 <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
-                    Filter SKP Expiry
+                    Filter SKP Expired
                     <select
                         value={skpFilter}
                         onChange={(e) =>
@@ -503,12 +561,29 @@ export default function EmployeeDataView({
                         <option value="active">Aktif</option>
                     </select>
                 </label>
+                <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
+                    Filter Multi License
+                    <select
+                        value={multiLicenseFilter}
+                        onChange={(e) =>
+                            setMultiLicenseFilter(
+                                e.target.value as MultiLicenseFilter,
+                            )
+                        }
+                        className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                    >
+                        <option value="">Semua</option>
+                        <option value="multiple">
+                            License Lebih dari 1
+                        </option>
+                    </select>
+                </label>
 
                 <form
                     onSubmit={submitUpload}
-                    className="flex flex-col gap-2 lg:flex-row lg:items-end"
+                    className="flex w-full flex-col gap-2 xl:w-auto xl:min-w-[26rem]"
                 >
-                    <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 lg:w-80">
+                    <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700">
                         Upload Data CSV/XLSX
                         <input
                             key={uploadInputKey}
@@ -523,14 +598,25 @@ export default function EmployeeDataView({
                             className="block h-10 w-full rounded-lg border border-slate-300 bg-white text-sm text-slate-700 file:mr-3 file:h-full file:border-0 file:bg-slate-100 file:px-3 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
                         />
                     </label>
-                    <button
-                        type="submit"
-                        disabled={uploadForm.processing}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6] disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                        <UploadIcon className="h-4 w-4" />
-                        {uploadForm.processing ? 'Mengupload...' : 'Upload'}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="submit"
+                            disabled={uploadForm.processing}
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6] disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                            <UploadIcon className="h-4 w-4" />
+                            {uploadForm.processing ? 'Mengupload...' : 'Upload'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                window.location.href = downloadTemplate.url();
+                            }}
+                            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold whitespace-nowrap text-slate-700 shadow-sm transition hover:bg-slate-50"
+                        >
+                            Download Template Excel
+                        </button>
+                    </div>
                 </form>
             </div>
 
@@ -682,7 +768,14 @@ export default function EmployeeDataView({
                                             {employee.training_schedule ?? '-'}
                                         </td>
                                         <td className="px-4 py-3 whitespace-nowrap">
-                                            {isAvsecLicense(
+                                            {isTeknikLicense(
+                                                employee.function_category,
+                                            )
+                                                ? employee.sub_license ?? '-'
+                                                : '-'}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            {supportsCategory(
                                                 employee.function_category,
                                             ) ? (
                                                 <div className="min-w-[180px]">
@@ -713,17 +806,20 @@ export default function EmployeeDataView({
                                                         className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                                                     >
                                                         <option value="">
-                                                            Pilih kategori
+                                                            {getCategoryPlaceholder(
+                                                                employee.function_category,
+                                                            )}
                                                         </option>
-                                                        <option value="Basic">
-                                                            Basic
-                                                        </option>
-                                                        <option value="Junior">
-                                                            Junior
-                                                        </option>
-                                                        <option value="Senior">
-                                                            Senior
-                                                        </option>
+                                                        {getCategoryOptions(
+                                                            employee.function_category,
+                                                        ).map((option) => (
+                                                            <option
+                                                                key={option}
+                                                                value={option}
+                                                            >
+                                                                {option}
+                                                            </option>
+                                                        ))}
                                                     </select>
                                                 </div>
                                             ) : (
@@ -1099,6 +1195,14 @@ function EmployeeAvsecArchiveModal({
                             </div>
                             <div>
                                 <p className="text-xs font-semibold text-slate-500 uppercase">
+                                    Sub License Aktif
+                                </p>
+                                <p className="mt-1 text-sm font-medium text-slate-900">
+                                    {employee.sub_license ?? '-'}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs font-semibold text-slate-500 uppercase">
                                     Kategori Aktif
                                 </p>
                                 <p className="mt-1 text-sm font-medium text-slate-900">
@@ -1128,6 +1232,10 @@ function EmployeeAvsecArchiveModal({
                                         value={
                                             archiveToDisplay.function_category
                                         }
+                                    />
+                                    <ArchiveField
+                                        label="Sub License"
+                                        value={archiveToDisplay.sub_license}
                                     />
                                     <ArchiveField
                                         label="NIK"
@@ -1279,6 +1387,31 @@ function EditEmployeeModal({
     onClose: () => void;
 }) {
     const avsecLicenseSelected = isAvsecLicense(form.data.function_category);
+    const teknikLicenseSelected = isTeknikLicense(form.data.function_category);
+    const categoryOptions = getCategoryOptions(form.data.function_category);
+
+    function updateFunctionCategory(nextValue: string | null) {
+        const nextCategoryOptions = getCategoryOptions(nextValue);
+
+        form.setData('function_category', nextValue);
+
+        if (!isTeknikLicense(nextValue)) {
+            form.setData('sub_license', null);
+        }
+
+        if (!supportsCategory(nextValue)) {
+            form.setData('avsec_category', null);
+
+            return;
+        }
+
+        if (
+            form.data.avsec_category &&
+            !nextCategoryOptions.includes(form.data.avsec_category)
+        ) {
+            form.setData('avsec_category', null);
+        }
+    }
 
     return (
         <div
@@ -1491,8 +1624,7 @@ function EditEmployeeModal({
                                     type="text"
                                     value={form.data.function_category || ''}
                                     onChange={(e) =>
-                                        form.setData(
-                                            'function_category',
+                                        updateFunctionCategory(
                                             e.target.value || null,
                                         )
                                     }
@@ -1521,6 +1653,34 @@ function EditEmployeeModal({
 
                         <div className="sm:col-span-1">
                             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                                Sub License
+                                <select
+                                    value={form.data.sub_license || ''}
+                                    onChange={(e) =>
+                                        form.setData(
+                                            'sub_license',
+                                            e.target.value || null,
+                                        )
+                                    }
+                                    disabled={!teknikLicenseSelected}
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:bg-slate-100"
+                                >
+                                    <option value="">
+                                        {teknikLicenseSelected
+                                            ? 'Pilih sub license'
+                                            : 'Hanya untuk license Teknik'}
+                                    </option>
+                                    {teknikSubLicenseOptions.map((option) => (
+                                        <option key={option} value={option}>
+                                            {option}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        </div>
+
+                        <div className="sm:col-span-1">
+                            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
                                 Kategori
                                 <select
                                     value={form.data.avsec_category || ''}
@@ -1530,22 +1690,27 @@ function EditEmployeeModal({
                                             e.target.value || null,
                                         )
                                     }
-                                    disabled={!avsecLicenseSelected}
+                                    disabled={!supportsCategory(form.data.function_category)}
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:bg-slate-100"
                                 >
                                     <option value="">
-                                        {avsecLicenseSelected
-                                            ? 'Pilih kategori'
-                                            : 'Hanya untuk license Avsec'}
+                                        {getCategoryPlaceholder(
+                                            form.data.function_category,
+                                        )}
                                     </option>
-                                    <option value="Basic">Basic</option>
-                                    <option value="Junior">Junior</option>
-                                    <option value="Senior">Senior</option>
+                                    {categoryOptions.map((option) => (
+                                        <option key={option} value={option}>
+                                            {option}
+                                        </option>
+                                    ))}
                                 </select>
                             </label>
                             <p className="mt-1 text-xs text-slate-500">
-                                Riwayat kategori lama akan masuk ke arsip saat
-                                kategori aktif diperbarui.
+                                {avsecLicenseSelected
+                                    ? 'Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
+                                    : teknikLicenseSelected
+                                      ? 'Kategori Teknik tersedia: Terampil dan Ahli.'
+                                      : 'Kategori hanya aktif untuk license Avsec dan Teknik.'}
                             </p>
                         </div>
 
@@ -1813,6 +1978,34 @@ function isAvsecLicense(value: string | null | undefined) {
     return normalizedValue === 'avsec' || normalizedValue === 'avsek';
 }
 
+function isTeknikLicense(value: string | null | undefined) {
+    return value?.trim().toLowerCase() === 'teknik';
+}
+
+function supportsCategory(value: string | null | undefined) {
+    return isAvsecLicense(value) || isTeknikLicense(value);
+}
+
+function getCategoryOptions(value: string | null | undefined) {
+    if (isAvsecLicense(value)) {
+        return ['Basic', 'Junior', 'Senior'];
+    }
+
+    if (isTeknikLicense(value)) {
+        return ['Terampil', 'Ahli'];
+    }
+
+    return [];
+}
+
+function getCategoryPlaceholder(value: string | null | undefined) {
+    if (isAvsecLicense(value) || isTeknikLicense(value)) {
+        return 'Pilih kategori';
+    }
+
+    return 'Hanya untuk license Avsec dan Teknik';
+}
+
 function normalizeLicenseValue(value: string | null | undefined): LicenseFilter {
     const normalizedValue = value?.trim().toLowerCase();
 
@@ -1832,6 +2025,52 @@ function normalizeLicenseValue(value: string | null | undefined): LicenseFilter 
         default:
             return '';
     }
+}
+
+function normalizeNameValue(value: string | null | undefined) {
+    return value?.trim().toLowerCase() ?? '';
+}
+
+function compareEmployees(left: Employee, right: Employee) {
+    const nameComparison = left.name.localeCompare(right.name, 'id-ID', {
+        sensitivity: 'base',
+    });
+
+    if (nameComparison !== 0) {
+        return nameComparison;
+    }
+
+    const licenseComparison = (left.function_category ?? '').localeCompare(
+        right.function_category ?? '',
+        'id-ID',
+        { sensitivity: 'base' },
+    );
+
+    if (licenseComparison !== 0) {
+        return licenseComparison;
+    }
+
+    const categoryComparison = (left.avsec_category ?? '').localeCompare(
+        right.avsec_category ?? '',
+        'id-ID',
+        { sensitivity: 'base' },
+    );
+
+    if (categoryComparison !== 0) {
+        return categoryComparison;
+    }
+
+    const subLicenseComparison = (left.sub_license ?? '').localeCompare(
+        right.sub_license ?? '',
+        'id-ID',
+        { sensitivity: 'base' },
+    );
+
+    if (subLicenseComparison !== 0) {
+        return subLicenseComparison;
+    }
+
+    return left.id - right.id;
 }
 
 function formatArchiveDateTime(value: string | null) {

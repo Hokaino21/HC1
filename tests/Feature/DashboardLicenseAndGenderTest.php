@@ -18,12 +18,22 @@ it('keeps dashboard data complete while preserving selected employee license fil
         'function_category' => 'Avsec',
     ]);
 
+    Employee::query()->create([
+        'nik' => '5002',
+        'name' => 'Sari Aminah',
+        'function_category' => 'Teknik',
+        'sub_license' => 'ALS',
+        'avsec_category' => 'Ahli',
+    ]);
+
     $this->get(route('home', ['license' => 'Teknik']))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('welcome')
             ->where('filters.license', 'teknik')
-            ->has('employees', 2)
+            ->has('employees', 3)
+            ->where('employees.1.has_multiple_licenses', true)
+            ->where('employees.2.has_multiple_licenses', true)
         );
 });
 

@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { Employee, MandatoryTrainingPreview } from '@/types/welcome';
 import { exportMandatoryTraining } from '@/routes/employees';
-import { groupEmployeesForMandatoryTraining, buildEmployeeClassKeyMap, applyMandatoryTrainingClassOverrides } from '@/features/shared/utils';
+import { groupEmployeesForMandatoryTraining, buildEmployeeClassKeyMap, applyMandatoryTrainingClassOverrides, getSkpExpiryStatus } from '@/features/shared/utils';
 import { PlaceholderPanel } from '@/features/shared/components/PlaceholderPanel';
 import { SkpExpiryCell } from '@/features/shared/components/SkpExpiryCell';
-import { EyeIcon } from '@/features/shared/components/icons';
+import { DownloadIcon, EyeIcon } from '@/features/shared/components/icons';
 
 const mandatoryTrainingBaseColumns = [
     'No',
@@ -15,6 +15,8 @@ const mandatoryTrainingBaseColumns = [
     'SKP Expired',
     'License',
 ];
+
+type MandatoryTrainingSkpFilter = '' | 'expired' | 'within_year' | 'active';
 
 export default function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
     const [checkedEmployeeIds, setCheckedEmployeeIds] = useState<Set<number>>(
@@ -28,26 +30,54 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
         Record<string, string>
     >({});
     const [searchQuery, setSearchQuery] = useState('');
+    const [skpFilter, setSkpFilter] =
+        useState<MandatoryTrainingSkpFilter>('');
     const [previewData, setPreviewData] =
         useState<MandatoryTrainingPreview | null>(null);
 
     const filteredEmployees = useMemo(() => {
-        if (!searchQuery.trim()) {
-            return employees;
+        let filtered = employees;
+
+        if (searchQuery.trim()) {
+            const lowerQuery = searchQuery.toLowerCase().trim();
+
+            filtered = filtered.filter(
+                (employee) =>
+                    employee.nik.toLowerCase().includes(lowerQuery) ||
+                    employee.name.toLowerCase().includes(lowerQuery) ||
+                    (employee.function_category &&
+                        employee.function_category
+                            .toLowerCase()
+                            .includes(lowerQuery)),
+            );
         }
 
-        const lowerQuery = searchQuery.toLowerCase().trim();
+        if (skpFilter) {
+            filtered = filtered.filter((employee) => {
+                const status = getSkpExpiryStatus(employee.skp_expired);
 
-        return employees.filter(
-            (employee) =>
-                employee.nik.toLowerCase().includes(lowerQuery) ||
-                employee.name.toLowerCase().includes(lowerQuery) ||
-                (employee.function_category &&
-                    employee.function_category
-                        .toLowerCase()
-                        .includes(lowerQuery)),
-        );
-    }, [employees, searchQuery]);
+                if (!status) {
+                    return false;
+                }
+
+                if (skpFilter === 'expired') {
+                    return status.tone === 'expired';
+                }
+
+                if (skpFilter === 'within_year') {
+                    return status.tone === 'warning';
+                }
+
+                if (skpFilter === 'active') {
+                    return status.tone === 'active';
+                }
+
+                return true;
+            });
+        }
+
+        return filtered;
+    }, [employees, searchQuery, skpFilter]);
 
     const generatedGroups = useMemo(
         () => groupEmployeesForMandatoryTraining(filteredEmployees),
@@ -204,16 +234,35 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
     return (
         <section className="flex min-h-full flex-col gap-4">
             <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
-                    Cari (NIK, Nama, License)
-                    <input
-                        type="text"
-                        placeholder="Cari karyawan..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
-                    />
-                </label>
+                <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
+                    <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
+                        Cari (NIK, Nama, License)
+                        <input
+                            type="text"
+                            placeholder="Cari karyawan..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                        />
+                    </label>
+                    <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
+                        Filter SKP Expired
+                        <select
+                            value={skpFilter}
+                            onChange={(e) =>
+                                setSkpFilter(
+                                    e.target.value as MandatoryTrainingSkpFilter,
+                                )
+                            }
+                            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                        >
+                            <option value="">Semua</option>
+                            <option value="expired">Expired</option>
+                            <option value="within_year">Dalam 1 Tahun</option>
+                            <option value="active">Aktif</option>
+                        </select>
+                    </label>
+                </div>
             </div>
             {groupedEmployees.length > 0 ? (
                 groupedEmployees.map((group) => {

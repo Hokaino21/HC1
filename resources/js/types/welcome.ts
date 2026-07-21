@@ -2,6 +2,7 @@ import type { ComponentType, SVGProps } from 'react';
 
 type TabId = 'dashboard' | 'karyawan' | 'diklat' | 'template';
 type LicenseFilter = '' | 'teknik' | 'avsec' | 'pkkp' | 'arff' | 'amc';
+type MultiLicenseFilter = '' | 'multiple';
 type SkpFilter = '' | 'expired' | 'active' | 'within_year';
 type TemplateLetterType = 'bp3' | 'ppic';
 
@@ -26,8 +27,11 @@ type Employee = {
     unit_label: string | null;
     skp_expired: string | null;
     function_category: string | null;
+    sub_license: string | null;
     training_schedule: string | null;
     avsec_category: string | null;
+    has_multiple_licenses: boolean;
+    license_count_by_name: number;
     avsec_archives: EmployeeAvsecArchive[];
     photo_jpg: string | null;
     ktp_pdf: string | null;
@@ -54,6 +58,7 @@ type EmployeeAvsecArchive = {
     location: string | null;
     skp_expired: string | null;
     function_category: string | null;
+    sub_license: string | null;
     training_schedule: string | null;
     avsec_category: string;
     photo_jpg: string | null;

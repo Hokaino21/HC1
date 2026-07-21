@@ -10,6 +10,7 @@ it('archives employee data before updating avsec category', function () {
         'nik' => '2001',
         'name' => 'Andi Pratama',
         'function_category' => 'Avsec',
+        'sub_license' => null,
         'avsec_category' => 'Basic',
         'gender' => 'Laki-laki',
     ]);
@@ -27,6 +28,7 @@ it('archives employee data before updating avsec category', function () {
         'name' => $employee->name,
         'gender' => 'Laki-laki',
         'function_category' => $employee->function_category,
+        'sub_license' => null,
     ]);
 
     $employee->refresh();

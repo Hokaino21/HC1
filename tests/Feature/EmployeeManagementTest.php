@@ -73,15 +73,15 @@ it('imports employees from an xlsx file', function () {
     ]);
 });
 
-it('updates employees when importing the same nik again', function () {
+it('stores another row when the same nik has a different license', function () {
     $firstFile = UploadedFile::fake()->createWithContent('employees.csv', implode("\n", [
-        'nik,nama,jabatan,pg,unit,skp expired,fungsi',
-        '3001,Dian Saputra,Officer,PG1,Teknik,2027-01-01,Operasional',
+        'nik,nama,license,kategori,sub license',
+        '3001,Dian Saputra,Teknik,Ahli,ALS',
     ]));
 
     $secondFile = UploadedFile::fake()->createWithContent('employees.csv', implode("\n", [
-        'nik,nama,jabatan,pg,unit,skp expired,fungsi',
-        '3001,Dian Saputra,Supervisor,PG2,Avsek,2028-02-02,Keamanan',
+        'nik,nama,license,kategori',
+        '3001,Dian Saputra,Avsec,Junior',
     ]));
 
     $this->post(route('employees.import'), [
@@ -92,15 +92,22 @@ it('updates employees when importing the same nik again', function () {
         'employees_file' => $secondFile,
     ])->assertRedirect();
 
-    expect(Employee::query()->where('nik', '3001')->count())->toBe(1);
+    expect(Employee::query()->where('nik', '3001')->count())->toBe(2);
 
     assertDatabaseHas('employees', [
         'nik' => '3001',
-        'position' => 'Supervisor',
-        'pg' => 'PG2',
-        'unit' => 'avsek',
-        'skp_expired' => '2028-02-02 00:00:00',
-        'function_category' => 'Keamanan',
+        'name' => 'Dian Saputra',
+        'function_category' => 'Teknik',
+        'sub_license' => 'ALS',
+        'avsec_category' => 'Ahli',
+    ]);
+
+    assertDatabaseHas('employees', [
+        'nik' => '3001',
+        'name' => 'Dian Saputra',
+        'function_category' => 'Avsec',
+        'sub_license' => null,
+        'avsec_category' => 'Junior',
     ]);
 });
 
@@ -126,8 +133,47 @@ it('filters employees by license on the home page', function () {
         ->assertInertia(fn ($page) => $page
             ->component('welcome')
             ->where('filters.license', 'teknik')
-            ->has('employees', 1)
-            ->where('employees.0.nik', '1001')
+            ->has('employees', 2)
+        );
+});
+
+it('sorts employees by name and marks names with multiple licenses', function () {
+    Employee::query()->create([
+        'nik' => '9002',
+        'name' => 'Budi Santoso',
+        'function_category' => 'PKKP',
+    ]);
+
+    Employee::query()->create([
+        'nik' => '9001',
+        'name' => 'Andi Pratama',
+        'function_category' => 'Teknik',
+        'sub_license' => 'ALS',
+        'avsec_category' => 'Ahli',
+    ]);
+
+    Employee::query()->create([
+        'nik' => '9001',
+        'name' => 'Andi Pratama',
+        'function_category' => 'Avsec',
+        'avsec_category' => 'Junior',
+    ]);
+
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('welcome')
+            ->where('employees.0.name', 'Andi Pratama')
+            ->where('employees.1.name', 'Andi Pratama')
+            ->where('employees.2.name', 'Budi Santoso')
+            ->where('employees.0.function_category', 'Avsec')
+            ->where('employees.1.function_category', 'Teknik')
+            ->where('employees.0.has_multiple_licenses', true)
+            ->where('employees.1.has_multiple_licenses', true)
+            ->where('employees.2.has_multiple_licenses', false)
+            ->where('employees.0.license_count_by_name', 2)
+            ->where('employees.1.license_count_by_name', 2)
+            ->where('employees.2.license_count_by_name', 1)
         );
 });
 

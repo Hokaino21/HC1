@@ -35,6 +35,59 @@ class EmployeeController extends Controller
         'whatsapp_number',
     ];
 
+    /**
+     * @var array<int, string>
+     */
+    private const EMPLOYEE_TEMPLATE_COLUMNS = [
+        'NIK',
+        'Nama',
+        'Tempat Lahir',
+        'Tanggal Lahir',
+        'Jenis Kelamin',
+        'Jabatan',
+        'PG',
+        'Unit',
+        'Lokasi',
+        'SKP Expired',
+        'License',
+        'Jadwal Diklat',
+        'Sub License',
+        'Kategori',
+        'Pas Foto',
+        'KTP',
+        'Sertifikat Kompetensi',
+        'Sertifikat Terakhir',
+        'Ijazah Pendidikan Terakhir',
+        'Buku Lisensi',
+        'Daftar Riwayat Hidup',
+        'SKCK',
+        'Background Check',
+        'Nomor WA',
+    ];
+
+    /**
+     * @var array<int, string>
+     */
+    private const TEKNIK_SUB_LICENSES = [
+        'A2B',
+        'ACS',
+        'ADG',
+        'ALS',
+        'BAF',
+        'CCR',
+        'FSD',
+        'FSU',
+        'GNS',
+        'IFS',
+        'P3KP',
+        'P3UKP',
+        'PBC',
+        'PSS',
+        'TQM',
+        'TRD',
+        'WPS',
+    ];
+
     public function index(Request $request): Response
     {
         $license = $request->string('license')->toString();
@@ -47,9 +100,34 @@ class EmployeeController extends Controller
 
         $employees = Employee::query()
             ->with('avsecArchives')
+            ->orderBy('name')
+            ->orderBy('function_category')
+            ->orderBy('avsec_category')
+            ->orderBy('sub_license')
             ->orderBy('id')
-            ->get()
+            ->get();
+
+        $licenseCountsByName = $employees
+            ->groupBy(fn (Employee $employee): string => $this->employeeNameKey($employee->name))
+            ->map(
+                fn ($group): int => $group
+                    ->pluck('function_category')
+                    ->filter(fn (?string $value): bool => filled($value))
+                    ->map(fn (string $value): string => Str::lower(trim($value)))
+                    ->unique()
+                    ->count(),
+            );
+
+        $employees = $employees
             ->map(fn (Employee $employee): array => [
+                'has_multiple_licenses' => ($licenseCountsByName->get(
+                    $this->employeeNameKey($employee->name),
+                    0,
+                ) > 1),
+                'license_count_by_name' => $licenseCountsByName->get(
+                    $this->employeeNameKey($employee->name),
+                    0,
+                ),
                 'id' => $employee->id,
                 'nik' => $employee->nik,
                 'name' => $employee->name,
@@ -63,6 +141,7 @@ class EmployeeController extends Controller
                 'unit_label' => $employee->unit ? Str::of($employee->unit)->upper()->toString() : null,
                 'skp_expired' => $employee->skp_expired?->format('Y-m-d'),
                 'function_category' => $employee->function_category,
+                'sub_license' => $employee->sub_license,
                 'training_schedule' => $employee->training_schedule,
                 'avsec_category' => $employee->avsec_category,
                 'avsec_archives' => $employee->avsecArchives->map(fn ($archive): array => [
@@ -78,6 +157,7 @@ class EmployeeController extends Controller
                     'location' => $archive->location,
                     'skp_expired' => $archive->skp_expired?->format('Y-m-d'),
                     'function_category' => $archive->function_category,
+                    'sub_license' => $archive->sub_license,
                     'training_schedule' => $archive->training_schedule,
                     'avsec_category' => $archive->avsec_category,
                     'photo_jpg' => $archive->photo_jpg,
@@ -101,6 +181,11 @@ class EmployeeController extends Controller
                 'license' => $license,
             ],
         ]);
+    }
+
+    private function employeeNameKey(?string $name): string
+    {
+        return Str::lower(trim((string) $name));
     }
 
     private function normalizeLicenseFilter(string $license): ?string
@@ -132,6 +217,153 @@ class EmployeeController extends Controller
             'p', 'pr', 'perempuan', 'wanita', 'female', 'f' => 'Perempuan',
             default => $value,
         };
+    }
+
+    private function normalizeFunctionCategory(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $normalized = Str::lower(trim($value));
+
+        return match ($normalized) {
+            '', '-' => null,
+            'avsek', 'avsec' => 'Avsec',
+            'pkpk', 'pkkp' => 'PKKP',
+            'teknik' => 'Teknik',
+            'arff' => 'ARFF',
+            'amc' => 'AMC',
+            default => $value,
+        };
+    }
+
+    private function normalizeLicenseCategory(
+        ?string $functionCategory,
+        ?string $category,
+    ): ?string {
+        if ($category === null) {
+            return null;
+        }
+
+        $normalizedCategory = Str::lower(trim($category));
+        $normalizedLicense = Str::lower(trim((string) $functionCategory));
+
+        if ($normalizedCategory === '' || $normalizedCategory === '-') {
+            return null;
+        }
+
+        if ($normalizedLicense === 'avsec' || $normalizedLicense === 'avsek') {
+            return match ($normalizedCategory) {
+                'basic' => 'Basic',
+                'junior' => 'Junior',
+                'senior' => 'Senior',
+                default => $category,
+            };
+        }
+
+        if ($normalizedLicense === 'teknik') {
+            return match ($normalizedCategory) {
+                'terampil' => 'Terampil',
+                'ahli' => 'Ahli',
+                default => $category,
+            };
+        }
+
+        return null;
+    }
+
+    private function normalizeSubLicense(
+        ?string $functionCategory,
+        ?string $subLicense,
+    ): ?string {
+        if ($subLicense === null) {
+            return null;
+        }
+
+        $normalizedLicense = Str::lower(trim((string) $functionCategory));
+
+        if ($normalizedLicense !== 'teknik') {
+            return null;
+        }
+
+        $normalizedSubLicense = Str::upper(trim($subLicense));
+
+        if ($normalizedSubLicense === '' || $normalizedSubLicense === '-') {
+            return null;
+        }
+
+        foreach (self::TEKNIK_SUB_LICENSES as $allowedSubLicense) {
+            if ($normalizedSubLicense === $allowedSubLicense) {
+                return $allowedSubLicense;
+            }
+        }
+
+        return $normalizedSubLicense;
+    }
+
+    /**
+     * @param  array<int, string>  $headers
+     */
+    private function employeeTemplateWorkbook(array $headers): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'employee-template');
+
+        if ($path === false) {
+            throw ValidationException::withMessages([
+                'employees_file' => 'Template Excel tidak bisa dibuat.',
+            ]);
+        }
+
+        $xlsxPath = $path.'.xlsx';
+        rename($path, $xlsxPath);
+
+        $zip = new ZipArchive;
+        $opened = $zip->open($xlsxPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+
+        if ($opened !== true) {
+            @unlink($xlsxPath);
+
+            throw ValidationException::withMessages([
+                'employees_file' => 'Template Excel tidak bisa dibuat.',
+            ]);
+        }
+
+        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>');
+        $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+        $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data Karyawan" sheetId="1" r:id="rId1"/></sheets></workbook>');
+        $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');
+        $zip->addFromString('xl/worksheets/sheet1.xml', $this->employeeTemplateSheetXml($headers));
+        $zip->close();
+
+        $content = file_get_contents($xlsxPath);
+        @unlink($xlsxPath);
+
+        if ($content === false) {
+            throw ValidationException::withMessages([
+                'employees_file' => 'Template Excel tidak bisa dibaca.',
+            ]);
+        }
+
+        return $content;
+    }
+
+    /**
+     * @param  array<int, string>  $headers
+     */
+    private function employeeTemplateSheetXml(array $headers): string
+    {
+        $cells = collect($headers)
+            ->values()
+            ->map(function (string $value, int $index): string {
+                $cellReference = $this->columnNameFromIndex($index).'1';
+                $escapedValue = htmlspecialchars($value, ENT_XML1);
+
+                return '<c r="'.$cellReference.'" t="inlineStr"><is><t>'.$escapedValue.'</t></is></c>';
+            })
+            ->implode('');
+
+        return '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">'.$cells.'</row></sheetData></worksheet>';
     }
 
     public function store(ImportEmployeesRequest $request): RedirectResponse
@@ -175,6 +407,7 @@ class EmployeeController extends Controller
             'location' => 'nullable|string',
             'skp_expired' => 'nullable|date',
             'function_category' => 'nullable|string',
+            'sub_license' => 'nullable|string',
             'training_schedule' => 'nullable|string',
             'avsec_category' => 'nullable|string',
             'photo_jpg' => 'nullable|string',
@@ -188,6 +421,26 @@ class EmployeeController extends Controller
             'background_check' => 'nullable|string',
             'whatsapp_number' => 'nullable|string',
         ]);
+
+        if (Arr::exists($validated, 'function_category')) {
+            $validated['function_category'] = $this->normalizeFunctionCategory(
+                Arr::get($validated, 'function_category'),
+            );
+        }
+
+        if (Arr::exists($validated, 'sub_license')) {
+            $validated['sub_license'] = $this->normalizeSubLicense(
+                Arr::get($validated, 'function_category', $employee->function_category),
+                Arr::get($validated, 'sub_license'),
+            );
+        }
+
+        if (Arr::exists($validated, 'avsec_category')) {
+            $validated['avsec_category'] = $this->normalizeLicenseCategory(
+                Arr::get($validated, 'function_category', $employee->function_category),
+                Arr::get($validated, 'avsec_category'),
+            );
+        }
 
         $employeeIsAvsec = in_array(
             Str::lower(trim((string) $employee->function_category)),
@@ -213,6 +466,7 @@ class EmployeeController extends Controller
                 'location' => $employee->location,
                 'skp_expired' => $employee->skp_expired,
                 'function_category' => $employee->function_category,
+                'sub_license' => $employee->sub_license,
                 'training_schedule' => $employee->training_schedule,
                 'avsec_category' => $employee->avsec_category ?? 'Belum diisi',
                 ...$this->employeeDocumentData($employee),
@@ -223,6 +477,16 @@ class EmployeeController extends Controller
         $employee->update($validated);
 
         return back()->with('success', 'Data karyawan berhasil diperbarui.');
+    }
+
+    public function downloadTemplate(): \Illuminate\Http\Response
+    {
+        $workbook = $this->employeeTemplateWorkbook(self::EMPLOYEE_TEMPLATE_COLUMNS);
+
+        return response($workbook, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="template-data-karyawan.xlsx"',
+        ]);
     }
 
     public function exportMandatoryTraining(Request $request): \Illuminate\Http\Response
@@ -291,7 +555,15 @@ class EmployeeController extends Controller
                 'unit' => $unit ? Str::of($unit)->lower()->toString() : null,
                 'location' => $this->cellValue($values, $columns['location'] ?? null),
                 'skp_expired' => $this->parseDate($this->cellValue($values, $columns['skp_expired'] ?? null), $lineNumber + 2),
-                'function_category' => $this->cellValue($values, $columns['function_category'] ?? null),
+                'function_category' => $this->normalizeFunctionCategory($this->cellValue($values, $columns['function_category'] ?? null)),
+                'sub_license' => $this->normalizeSubLicense(
+                    $this->cellValue($values, $columns['function_category'] ?? null),
+                    $this->cellValue($values, $columns['sub_license'] ?? null),
+                ),
+                'avsec_category' => $this->normalizeLicenseCategory(
+                    $this->cellValue($values, $columns['function_category'] ?? null),
+                    $this->cellValue($values, $columns['avsec_category'] ?? null),
+                ),
                 ...$this->employeeDocumentCellValues($values, $columns),
             ];
         }
@@ -587,10 +859,14 @@ class EmployeeController extends Controller
             'skpexpired' => 'skp_expired',
             'skpberakhir' => 'skp_expired',
             'fungsi' => 'function_category',
-            'kategori' => 'function_category',
             'function' => 'function_category',
-            'license' => 'function_category',
             'lisensi' => 'function_category',
+            'license' => 'function_category',
+            'sublicense' => 'sub_license',
+            'sublisensi' => 'sub_license',
+            'subfungsi' => 'sub_license',
+            'kategori' => 'avsec_category',
+            'category' => 'avsec_category',
             'pasfotojpg' => 'photo_jpg',
             'fotojpg' => 'photo_jpg',
             'pasfoto' => 'photo_jpg',
