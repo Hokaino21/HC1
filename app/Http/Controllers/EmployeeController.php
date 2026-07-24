@@ -101,31 +101,29 @@ class EmployeeController extends Controller
         $employees = Employee::query()
             ->with('avsecArchives')
             ->orderBy('name')
+            ->orderBy('nik')
             ->orderBy('function_category')
             ->orderBy('avsec_category')
             ->orderBy('sub_license')
             ->orderBy('id')
             ->get();
 
-        $licenseCountsByName = $employees
-            ->groupBy(fn (Employee $employee): string => $this->employeeNameKey($employee->name))
-            ->map(
-                fn ($group): int => $group
-                    ->pluck('function_category')
-                    ->filter(fn (?string $value): bool => filled($value))
-                    ->map(fn (string $value): string => Str::lower(trim($value)))
-                    ->unique()
-                    ->count(),
-            );
+        $licenseCountsByPerson = $employees
+            ->groupBy(
+                fn (Employee $employee): string => $this->employeePersonKey(
+                    $employee->nik,
+                ),
+            )
+            ->map(fn ($group): int => $group->count());
 
         $employees = $employees
             ->map(fn (Employee $employee): array => [
-                'has_multiple_licenses' => ($licenseCountsByName->get(
-                    $this->employeeNameKey($employee->name),
+                'has_multiple_licenses' => ($licenseCountsByPerson->get(
+                    $this->employeePersonKey($employee->nik),
                     0,
                 ) > 1),
-                'license_count_by_name' => $licenseCountsByName->get(
-                    $this->employeeNameKey($employee->name),
+                'license_count_by_name' => $licenseCountsByPerson->get(
+                    $this->employeePersonKey($employee->nik),
                     0,
                 ),
                 'id' => $employee->id,
@@ -183,9 +181,9 @@ class EmployeeController extends Controller
         ]);
     }
 
-    private function employeeNameKey(?string $name): string
+    private function employeePersonKey(?string $nik): string
     {
-        return Str::lower(trim((string) $name));
+        return Str::lower(trim((string) $nik));
     }
 
     private function normalizeLicenseFilter(string $license): ?string
@@ -372,18 +370,36 @@ class EmployeeController extends Controller
         $rows = $this->readEmployeeRows($file->getRealPath(), $file->getClientOriginalExtension());
 
         foreach ($rows as $row) {
-            $uniqueKey = [
-                'nik' => $row['nik'],
-                'function_category' => $row['function_category'],
-            ];
+            $employee = $this->findEmployeeForImportRow($row) ?? new Employee;
 
-            Employee::query()->updateOrCreate(
-                $uniqueKey,
-                Arr::except($row, array_keys($uniqueKey)),
-            );
+            $employee->fill($row);
+            $employee->save();
         }
 
         return back()->with('success', count($rows).' data karyawan berhasil diupload.');
+    }
+
+    /**
+     * @param  array<string, CarbonImmutable|string|null>  $row
+     */
+    private function findEmployeeForImportRow(array $row): ?Employee
+    {
+        $query = Employee::query()
+            ->where('nik', (string) $row['nik']);
+
+        foreach (['function_category', 'sub_license', 'avsec_category'] as $column) {
+            $value = Arr::get($row, $column);
+
+            if ($value === null) {
+                $query->whereNull($column);
+
+                continue;
+            }
+
+            $query->where($column, $value);
+        }
+
+        return $query->first();
     }
 
     public function destroy(Employee $employee): RedirectResponse

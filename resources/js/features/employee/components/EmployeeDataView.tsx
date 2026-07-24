@@ -236,17 +236,17 @@ export default function EmployeeDataView({
     }
 
     const filteredEmployees = useMemo(() => {
-        const licenseCountsByName = employees.reduce<Map<string, number>>(
+        const licenseCountsByPerson = employees.reduce<Map<string, number>>(
             (counts, employee) => {
-                const nameKey = normalizeNameValue(employee.name);
-                const currentCount = counts.get(nameKey) ?? 0;
+                const personKey = normalizeEmployeePersonKey(employee);
+                const currentCount = counts.get(personKey) ?? 0;
                 const fallbackCount =
                     employee.has_multiple_licenses ||
                     employee.license_count_by_name > 1
-                        ? Math.max(employee.license_count_by_name, 2)
-                        : 1;
+                        ? Math.max(employee.license_count_by_name, currentCount)
+                        : currentCount + 1;
 
-                counts.set(nameKey, Math.max(currentCount, fallbackCount));
+                counts.set(personKey, Math.max(currentCount + 1, fallbackCount));
 
                 return counts;
             },
@@ -269,8 +269,8 @@ export default function EmployeeDataView({
                 const countByName =
                     metadataCount > 0
                         ? metadataCount
-                        : (licenseCountsByName.get(
-                              normalizeNameValue(employee.name),
+                        : (licenseCountsByPerson.get(
+                              normalizeEmployeePersonKey(employee),
                           ) ?? 0);
 
                 return employee.has_multiple_licenses || countByName > 1;
@@ -2031,6 +2031,10 @@ function normalizeNameValue(value: string | null | undefined) {
     return value?.trim().toLowerCase() ?? '';
 }
 
+function normalizeEmployeePersonKey(employee: Employee) {
+    return employee.nik.trim().toLowerCase();
+}
+
 function compareEmployees(left: Employee, right: Employee) {
     const nameComparison = left.name.localeCompare(right.name, 'id-ID', {
         sensitivity: 'base',
@@ -2038,6 +2042,14 @@ function compareEmployees(left: Employee, right: Employee) {
 
     if (nameComparison !== 0) {
         return nameComparison;
+    }
+
+    const nikComparison = left.nik.localeCompare(right.nik, 'id-ID', {
+        sensitivity: 'base',
+    });
+
+    if (nikComparison !== 0) {
+        return nikComparison;
     }
 
     const licenseComparison = (left.function_category ?? '').localeCompare(

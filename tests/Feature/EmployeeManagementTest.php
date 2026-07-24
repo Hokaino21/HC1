@@ -31,8 +31,6 @@ it('imports employees from a csv file', function () {
         'function_category' => 'Operasional',
         'photo_jpg' => 'budi.jpg',
         'ktp_pdf' => 'budi-ktp.pdf',
-        'initial_avsec_competency_certificate' => 'budi-initial.pdf',
-        'latest_refresher_certificate' => 'budi-refresher.pdf',
         'latest_education_certificate' => 'budi-ijazah.pdf',
         'license_book' => 'budi-lisensi.pdf',
         'curriculum_vitae' => 'budi-cv.pdf',
@@ -111,6 +109,75 @@ it('stores another row when the same nik has a different license', function () {
     ]);
 });
 
+it('stores another row when the same nik has a different sub license or category', function () {
+    $firstFile = UploadedFile::fake()->createWithContent('employees.csv', implode("\n", [
+        'nik,nama,license,kategori,sub license,unit,lokasi',
+        '3002,Dian Saputra,Teknik,Ahli,ALS,Teknik,Hanggar A',
+    ]));
+
+    $secondFile = UploadedFile::fake()->createWithContent('employees.csv', implode("\n", [
+        'nik,nama,license,kategori,sub license,unit,lokasi',
+        '3002,Dian Saputra,Teknik,Terampil,ACS,Teknik,Hanggar B',
+    ]));
+
+    $this->post(route('employees.import'), [
+        'employees_file' => $firstFile,
+    ])->assertRedirect();
+
+    $this->post(route('employees.import'), [
+        'employees_file' => $secondFile,
+    ])->assertRedirect();
+
+    expect(Employee::query()->where('nik', '3002')->count())->toBe(2);
+
+    assertDatabaseHas('employees', [
+        'nik' => '3002',
+        'function_category' => 'Teknik',
+        'sub_license' => 'ALS',
+        'avsec_category' => 'Ahli',
+        'location' => 'Hanggar A',
+    ]);
+
+    assertDatabaseHas('employees', [
+        'nik' => '3002',
+        'function_category' => 'Teknik',
+        'sub_license' => 'ACS',
+        'avsec_category' => 'Terampil',
+        'location' => 'Hanggar B',
+    ]);
+});
+
+it('updates the exact imported row without replacing another employee combination', function () {
+    $firstFile = UploadedFile::fake()->createWithContent('employees.csv', implode("\n", [
+        'nik,nama,license,kategori,sub license,unit,lokasi,nomor wa',
+        '3003,Dian Saputra,Teknik,Ahli,ALS,Teknik,Hanggar A,0812000001',
+    ]));
+
+    $secondFile = UploadedFile::fake()->createWithContent('employees.csv', implode("\n", [
+        'nik,nama,license,kategori,sub license,unit,lokasi,nomor wa',
+        '3003,Dian Saputra,Teknik,Ahli,ALS,Teknik,Hanggar C,0812000009',
+    ]));
+
+    $this->post(route('employees.import'), [
+        'employees_file' => $firstFile,
+    ])->assertRedirect();
+
+    $this->post(route('employees.import'), [
+        'employees_file' => $secondFile,
+    ])->assertRedirect();
+
+    expect(Employee::query()->where('nik', '3003')->count())->toBe(1);
+
+    assertDatabaseHas('employees', [
+        'nik' => '3003',
+        'function_category' => 'Teknik',
+        'sub_license' => 'ALS',
+        'avsec_category' => 'Ahli',
+        'location' => 'Hanggar C',
+        'whatsapp_number' => '0812000009',
+    ]);
+});
+
 it('filters employees by license on the home page', function () {
     Employee::query()->create([
         'nik' => '1001',
@@ -137,7 +204,7 @@ it('filters employees by license on the home page', function () {
         );
 });
 
-it('sorts employees by name and marks names with multiple licenses', function () {
+it('sorts employees by person and marks employees with multiple license rows', function () {
     Employee::query()->create([
         'nik' => '9002',
         'name' => 'Budi Santoso',
@@ -159,21 +226,35 @@ it('sorts employees by name and marks names with multiple licenses', function ()
         'avsec_category' => 'Junior',
     ]);
 
+    Employee::query()->create([
+        'nik' => '9001',
+        'name' => 'Andi Pratama',
+        'function_category' => 'Teknik',
+        'sub_license' => 'ACS',
+        'avsec_category' => 'Terampil',
+    ]);
+
     $this->get(route('home'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('welcome')
             ->where('employees.0.name', 'Andi Pratama')
             ->where('employees.1.name', 'Andi Pratama')
-            ->where('employees.2.name', 'Budi Santoso')
+            ->where('employees.2.name', 'Andi Pratama')
+            ->where('employees.3.name', 'Budi Santoso')
             ->where('employees.0.function_category', 'Avsec')
             ->where('employees.1.function_category', 'Teknik')
+            ->where('employees.1.sub_license', 'ALS')
+            ->where('employees.2.function_category', 'Teknik')
+            ->where('employees.2.sub_license', 'ACS')
             ->where('employees.0.has_multiple_licenses', true)
             ->where('employees.1.has_multiple_licenses', true)
-            ->where('employees.2.has_multiple_licenses', false)
-            ->where('employees.0.license_count_by_name', 2)
-            ->where('employees.1.license_count_by_name', 2)
-            ->where('employees.2.license_count_by_name', 1)
+            ->where('employees.2.has_multiple_licenses', true)
+            ->where('employees.3.has_multiple_licenses', false)
+            ->where('employees.0.license_count_by_name', 3)
+            ->where('employees.1.license_count_by_name', 3)
+            ->where('employees.2.license_count_by_name', 3)
+            ->where('employees.3.license_count_by_name', 1)
         );
 });
 
