@@ -1,19 +1,20 @@
 import type { ComponentType, SVGProps } from 'react';
 
-type TabId = 'dashboard' | 'karyawan' | 'diklat' | 'template';
-type LicenseFilter = '' | 'teknik' | 'avsec' | 'pkkp' | 'arff' | 'amc';
-type MultiLicenseFilter = '' | 'multiple';
-type SkpFilter = '' | 'expired' | 'active' | 'within_year';
-type TemplateLetterType = 'bp3' | 'ppic';
+export type TabId = 'dashboard' | 'karyawan' | 'diklat' | 'template';
+export type LicenseFilter = string;
+export type MultiLicenseFilter = '' | 'multiple';
+export type SkpFilter = '' | 'expired' | 'active' | 'within_year';
+export type TemplateLetterType = 'bp3' | 'ppic';
+export type UnitFilter = string;
 
-type NavigationItem = {
+export type NavigationItem = {
     id: TabId;
     title: string;
     icon: ComponentType<SVGProps<SVGSVGElement>>;
     placeholder: string;
 };
 
-type Employee = {
+export type Employee = {
     id: number;
     nik: string;
     name: string;
@@ -45,7 +46,7 @@ type Employee = {
     whatsapp_number: string | null;
 };
 
-type EmployeeAvsecArchive = {
+export type EmployeeAvsecArchive = {
     id: string;
     nik: string | null;
     name: string | null;
@@ -74,7 +75,7 @@ type EmployeeAvsecArchive = {
     archived_at: string | null;
 };
 
-type EmployeeDocumentColumn = {
+export type EmployeeDocumentColumn = {
     key: keyof Pick<
         Employee,
         | 'photo_jpg'
@@ -91,24 +92,24 @@ type EmployeeDocumentColumn = {
     label: string;
 };
 
-type WelcomeProps = {
+export type WelcomeProps = {
     employees: Employee[];
     filters: {
         license: LicenseFilter | null;
     };
 };
 
-type SkpExpiryStatus = {
+export type SkpExpiryStatus = {
     label: string;
     tone: 'expired' | 'warning' | 'active';
 };
 
-type SkpExpiryAlert = {
+export type SkpExpiryAlert = {
     employee: Employee;
     status: SkpExpiryStatus;
 };
 
-type MandatoryTrainingGroup = {
+export type MandatoryTrainingGroup = {
     key: string;
     skpExpired: string | null;
     functionCategory: string | null;
@@ -118,7 +119,7 @@ type MandatoryTrainingGroup = {
     totalCategoryEmployees: number;
 };
 
-type MandatoryTrainingPreview = {
+export type MandatoryTrainingPreview = {
     groupKey: string;
     documentTitle: string;
     batchName: string;

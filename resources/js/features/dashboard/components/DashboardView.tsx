@@ -4,32 +4,55 @@ import { getSkpExpiryStatus } from '@/features/shared/utils';
 import { ShieldCheckIcon, CalendarIcon, MapPinIcon, AwardIcon, AlertTriangleIcon, UsersIcon } from '@/features/shared/components/icons';
 
 export default function DashboardView({ employees = [] }: { employees: Employee[] }) {
-    const [dashboardLicenseQuery, setDashboardLicenseQuery] = useState('');
+    const [dashboardLicenseFilter, setDashboardLicenseFilter] =
+        useState<string>('all');
     const [dashboardCategoryFilter, setDashboardCategoryFilter] =
         useState<string>('all');
     const [dashboardSubLicenseFilter, setDashboardSubLicenseFilter] =
         useState<string>('all');
 
-    const licenseTypes = useMemo(() => {
-        return Array.from(
-            new Set(
-                employees
-                    .map((employee) =>
-                        normalizeDashboardLicense(employee.function_category),
-                    )
-                    .filter((value): value is string => value !== null),
-            ),
-        );
+    const licenseOptions = useMemo(() => {
+        const raw = employees
+            .map((e) => e.function_category?.trim())
+            .filter((v): v is string => typeof v === 'string' && v.length > 0);
+
+        const normalized = new Map<string, string>();
+
+        raw.forEach((value) => {
+            const key = normalizeDashboardLicense(value);
+            if (key === null) {
+                return;
+            }
+            if (!normalized.has(key)) {
+                normalized.set(key, formatDashboardLicenseLabel(key));
+            }
+        });
+
+        return Array.from(normalized.entries())
+            .map(([value, label]) => ({ value, label }))
+            .sort((a, b) => a.label.localeCompare(b.label, 'id-ID', { sensitivity: 'base' }));
     }, [employees]);
 
+    useEffect(() => {
+        if (
+            dashboardLicenseFilter !== 'all' &&
+            !licenseOptions.some((option) => option.value === dashboardLicenseFilter)
+        ) {
+            setDashboardLicenseFilter('all');
+        }
+    }, [dashboardLicenseFilter, licenseOptions]);
+
     const licenseFilteredEmployees = useMemo(() => {
-        return employees.filter((employee) =>
-            matchesDashboardLicenseQuery(
-                employee.function_category,
-                dashboardLicenseQuery,
-            ),
-        );
-    }, [employees, dashboardLicenseQuery]);
+        if (dashboardLicenseFilter === 'all') {
+            return employees;
+        }
+
+        return employees.filter((employee) => {
+            const normalized = normalizeDashboardLicense(employee.function_category);
+
+            return normalized === dashboardLicenseFilter;
+        });
+    }, [employees, dashboardLicenseFilter]);
 
     const categoryOptions = useMemo(() => {
         return Array.from(
@@ -38,7 +61,7 @@ export default function DashboardView({ employees = [] }: { employees: Employee[
                     .map((employee) => employee.avsec_category?.trim())
                     .filter(
                         (value): value is string =>
-                            Boolean(value) && value.length > 0,
+                            typeof value === 'string' && value.length > 0,
                     ),
             ),
         ).sort((left, right) =>
@@ -53,7 +76,7 @@ export default function DashboardView({ employees = [] }: { employees: Employee[
                     .map((employee) => employee.sub_license?.trim())
                     .filter(
                         (value): value is string =>
-                            Boolean(value) && value.length > 0,
+                            typeof value === 'string' && value.length > 0,
                     ),
             ),
         ).sort((left, right) =>
@@ -407,26 +430,25 @@ export default function DashboardView({ employees = [] }: { employees: Employee[
                     <div className="grid gap-3 sm:grid-cols-3">
                         <label className="flex min-w-[180px] flex-col gap-1.5 text-xs font-semibold tracking-wider text-slate-400 uppercase">
                             Filter License
-                            <input
-                                type="text"
-                                list="dashboard-license-options"
-                                value={dashboardLicenseQuery}
+                            <select
+                                value={dashboardLicenseFilter}
                                 onChange={(event) =>
-                                    setDashboardLicenseQuery(event.target.value)
+                                    setDashboardLicenseFilter(
+                                        event.target.value,
+                                    )
                                 }
-                                placeholder="Ketik license, misal Teknik"
                                 className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold normal-case text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
-                            />
-                            <datalist id="dashboard-license-options">
-                                {licenseTypes.map((license) => (
+                            >
+                                <option value="all">Semua</option>
+                                {licenseOptions.map((option) => (
                                     <option
-                                        key={license}
-                                        value={formatDashboardLicenseLabel(
-                                            license,
-                                        )}
-                                    />
+                                        key={option.value}
+                                        value={option.value}
+                                    >
+                                        {option.label}
+                                    </option>
                                 ))}
-                            </datalist>
+                            </select>
                         </label>
                         <label className="flex min-w-[180px] flex-col gap-1.5 text-xs font-semibold tracking-wider text-slate-400 uppercase">
                             Filter Kategori
@@ -476,9 +498,11 @@ export default function DashboardView({ employees = [] }: { employees: Employee[
                 <div className="flex flex-wrap gap-2 text-xs font-semibold">
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
                         License:{' '}
-                        {dashboardLicenseQuery.trim()
-                            ? dashboardLicenseQuery
-                            : 'Semua License'}
+                        {dashboardLicenseFilter === 'all'
+                            ? 'Semua License'
+                            : formatDashboardLicenseLabel(
+                                dashboardLicenseFilter,
+                            )}
                     </span>
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
                         Kategori:{' '}
@@ -776,9 +800,11 @@ export default function DashboardView({ employees = [] }: { employees: Employee[
                             </h3>
                         </div>
                         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                            {dashboardLicenseQuery.trim()
-                                ? dashboardLicenseQuery
-                                : 'Semua License'}
+                            {dashboardLicenseFilter === 'all'
+                                ? 'Semua License'
+                                : formatDashboardLicenseLabel(
+                                    dashboardLicenseFilter,
+                                )}
                         </span>
                     </div>
 

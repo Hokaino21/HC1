@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, ChangeEvent, FormEvent, Fragment, useEffect } from 'react';
 import { router, useForm } from '@inertiajs/react';
-import { Employee, LicenseFilter, MultiLicenseFilter, EmployeeAvsecArchive, EmployeeDocumentColumn } from '@/types/welcome';
+import { Employee, LicenseFilter, MultiLicenseFilter, EmployeeAvsecArchive, EmployeeDocumentColumn, SkpFilter, SkpExpiryAlert } from '@/types/welcome';
 import { store, update, destroy, downloadTemplate } from '@/actions/App/Http/Controllers/EmployeeController';
 import { UploadIcon, TrashIcon, PencilIcon, ArchiveIcon, CloseIcon, AlertTriangleIcon } from '@/features/shared/components/icons';
 import { SkpExpiryCell } from '@/features/shared/components/SkpExpiryCell';
@@ -28,7 +28,7 @@ const employeeDocumentColumns: EmployeeDocumentColumn[] = [
     { key: 'whatsapp_number', label: 'Nomor WA' },
 ];
 
-const teknikSubLicenseOptions = [
+const arffTeknikSubLicenseOptions = [
     'A2B',
     'ACS',
     'ADG',
@@ -138,6 +138,37 @@ export default function EmployeeDataView({
     useEffect(() => {
         setLicenseFilter(initialLicenseFilter);
     }, [initialLicenseFilter]);
+
+    const licenseOptions = useMemo(() => {
+        const raw = employees
+            .map((e) => e.function_category?.trim())
+            .filter((v): v is string => typeof v === 'string' && v.length > 0);
+
+        const normalized = new Map<string, string>();
+
+        raw.forEach((value) => {
+            const key = normalizeLicenseValue(value);
+            if (key === '') {
+                return;
+            }
+            if (!normalized.has(key)) {
+                normalized.set(key, formatLicenseLabel(value));
+            }
+        });
+
+        return Array.from(normalized.entries())
+            .map(([value, label]) => ({ value, label }))
+            .sort((a, b) => a.label.localeCompare(b.label, 'id-ID', { sensitivity: 'base' }));
+    }, [employees]);
+
+    useEffect(() => {
+        if (
+            licenseFilter !== '' &&
+            !licenseOptions.some((option) => option.value === licenseFilter)
+        ) {
+            setLicenseFilter('');
+        }
+    }, [licenseFilter, licenseOptions]);
 
     function syncTableScroll(source: HTMLDivElement) {
         if (scrollSyncLockRef.current) {
@@ -441,7 +472,7 @@ export default function EmployeeDataView({
     ) {
         const normalizedCategory = nextCategory || null;
 
-        if (!supportsCategory(employee.function_category)) {
+        if (!supportsCategory(employee.unit, employee.function_category)) {
             return;
         }
 
@@ -539,11 +570,11 @@ export default function EmployeeDataView({
                         className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
                     >
                         <option value="">Semua</option>
-                        <option value="teknik">Teknik</option>
-                        <option value="avsec">Avsec</option>
-                        <option value="pkkp">PKKP</option>
-                        <option value="arff">ARFF</option>
-                        <option value="amc">AMC</option>
+                        {licenseOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label}
+                            </option>
+                        ))}
                     </select>
                 </label>
                 <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
@@ -768,7 +799,7 @@ export default function EmployeeDataView({
                                             {employee.training_schedule ?? '-'}
                                         </td>
                                         <td className="px-4 py-3 whitespace-nowrap">
-                                            {isTeknikLicense(
+                                            {isArffLicense(
                                                 employee.function_category,
                                             )
                                                 ? employee.sub_license ?? '-'
@@ -776,6 +807,7 @@ export default function EmployeeDataView({
                                         </td>
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             {supportsCategory(
+                                                employee.unit,
                                                 employee.function_category,
                                             ) ? (
                                                 <div className="min-w-[180px]">
@@ -807,10 +839,12 @@ export default function EmployeeDataView({
                                                     >
                                                         <option value="">
                                                             {getCategoryPlaceholder(
+                                                                employee.unit,
                                                                 employee.function_category,
                                                             )}
                                                         </option>
                                                         {getCategoryOptions(
+                                                            employee.unit,
                                                             employee.function_category,
                                                         ).map((option) => (
                                                             <option
@@ -1387,19 +1421,25 @@ function EditEmployeeModal({
     onClose: () => void;
 }) {
     const avsecLicenseSelected = isAvsecLicense(form.data.function_category);
-    const teknikLicenseSelected = isTeknikLicense(form.data.function_category);
-    const categoryOptions = getCategoryOptions(form.data.function_category);
+    const arffLicenseSelected = isArffLicense(form.data.function_category);
+    const categoryOptions = getCategoryOptions(
+        form.data.unit,
+        form.data.function_category,
+    );
 
     function updateFunctionCategory(nextValue: string | null) {
-        const nextCategoryOptions = getCategoryOptions(nextValue);
+        const nextCategoryOptions = getCategoryOptions(
+            form.data.unit,
+            nextValue,
+        );
 
         form.setData('function_category', nextValue);
 
-        if (!isTeknikLicense(nextValue)) {
+        if (!isArffLicense(nextValue)) {
             form.setData('sub_license', null);
         }
 
-        if (!supportsCategory(nextValue)) {
+        if (!supportsCategory(form.data.unit, nextValue)) {
             form.setData('avsec_category', null);
 
             return;
@@ -1411,6 +1451,10 @@ function EditEmployeeModal({
         ) {
             form.setData('avsec_category', null);
         }
+    }
+
+    function updateUnit(nextValue: string | null) {
+        void nextValue;
     }
 
     return (
@@ -1572,10 +1616,7 @@ function EditEmployeeModal({
                                     type="text"
                                     value={form.data.unit || ''}
                                     onChange={(e) =>
-                                        form.setData(
-                                            'unit',
-                                            e.target.value || null,
-                                        )
+                                        updateUnit(e.target.value || null)
                                     }
                                     placeholder="Contoh: Teknik"
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
@@ -1662,15 +1703,15 @@ function EditEmployeeModal({
                                             e.target.value || null,
                                         )
                                     }
-                                    disabled={!teknikLicenseSelected}
+                                    disabled={!arffLicenseSelected}
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:bg-slate-100"
                                 >
                                     <option value="">
-                                        {teknikLicenseSelected
+                                        {arffLicenseSelected
                                             ? 'Pilih sub license'
-                                            : 'Hanya untuk license Teknik'}
+                                            : 'Hanya untuk license ARFF'}
                                     </option>
-                                    {teknikSubLicenseOptions.map((option) => (
+                                    {arffTeknikSubLicenseOptions.map((option) => (
                                         <option key={option} value={option}>
                                             {option}
                                         </option>
@@ -1690,11 +1731,15 @@ function EditEmployeeModal({
                                             e.target.value || null,
                                         )
                                     }
-                                    disabled={!supportsCategory(form.data.function_category)}
+                                    disabled={!supportsCategory(
+                                        form.data.unit,
+                                        form.data.function_category,
+                                    )}
                                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 transition outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:bg-slate-100"
                                 >
                                     <option value="">
                                         {getCategoryPlaceholder(
+                                            form.data.unit,
                                             form.data.function_category,
                                         )}
                                     </option>
@@ -1708,9 +1753,9 @@ function EditEmployeeModal({
                             <p className="mt-1 text-xs text-slate-500">
                                 {avsecLicenseSelected
                                     ? 'Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
-                                    : teknikLicenseSelected
-                                      ? 'Kategori Teknik tersedia: Terampil dan Ahli.'
-                                      : 'Kategori hanya aktif untuk license Avsec dan Teknik.'}
+                                    : arffLicenseSelected
+                                      ? 'Kategori license ARFF tersedia: Terampil dan Ahli. Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
+                                      : 'Kategori hanya aktif untuk license Avsec dan ARFF.'}
                             </p>
                         </div>
 
@@ -1978,36 +2023,60 @@ function isAvsecLicense(value: string | null | undefined) {
     return normalizedValue === 'avsec' || normalizedValue === 'avsek';
 }
 
-function isTeknikLicense(value: string | null | undefined) {
-    return value?.trim().toLowerCase() === 'teknik';
+function isArffLicense(functionCategory: string | null | undefined) {
+    const normalizedLicense = functionCategory?.trim().toLowerCase();
+
+    return normalizedLicense === 'arff';
 }
 
-function supportsCategory(value: string | null | undefined) {
-    return isAvsecLicense(value) || isTeknikLicense(value);
+function supportsCategory(
+    unit: string | null | undefined,
+    functionCategory: string | null | undefined,
+) {
+    void unit;
+
+    return isAvsecLicense(functionCategory) ||
+        isArffLicense(functionCategory);
 }
 
-function getCategoryOptions(value: string | null | undefined) {
-    if (isAvsecLicense(value)) {
+function getCategoryOptions(
+    unit: string | null | undefined,
+    functionCategory: string | null | undefined,
+) {
+    void unit;
+
+    if (isAvsecLicense(functionCategory)) {
         return ['Basic', 'Junior', 'Senior'];
     }
 
-    if (isTeknikLicense(value)) {
+    if (isArffLicense(functionCategory)) {
         return ['Terampil', 'Ahli'];
     }
 
     return [];
 }
 
-function getCategoryPlaceholder(value: string | null | undefined) {
-    if (isAvsecLicense(value) || isTeknikLicense(value)) {
+function getCategoryPlaceholder(
+    unit: string | null | undefined,
+    functionCategory: string | null | undefined,
+) {
+    void unit;
+
+    if (isAvsecLicense(functionCategory) ||
+        isArffLicense(functionCategory)) {
         return 'Pilih kategori';
     }
 
-    return 'Hanya untuk license Avsec dan Teknik';
+    return 'Hanya untuk license Avsec dan ARFF';
 }
 
 function normalizeLicenseValue(value: string | null | undefined): LicenseFilter {
-    const normalizedValue = value?.trim().toLowerCase();
+    const trimmed = value?.trim();
+    if (!trimmed) {
+        return '';
+    }
+
+    const normalizedValue = trimmed.toLowerCase();
 
     switch (normalizedValue) {
         case 'teknik':
@@ -2023,7 +2092,30 @@ function normalizeLicenseValue(value: string | null | undefined): LicenseFilter 
         case 'amc':
             return 'amc';
         default:
-            return '';
+            return normalizedValue;
+    }
+}
+
+function formatLicenseLabel(value: string | null | undefined): string {
+    const normalized = normalizeLicenseValue(value);
+
+    if (!normalized) {
+        return '-';
+    }
+
+    switch (normalized) {
+        case 'teknik':
+            return 'Teknik';
+        case 'avsec':
+            return 'Avsec';
+        case 'pkkp':
+            return 'PKKP';
+        case 'arff':
+            return 'ARFF';
+        case 'amc':
+            return 'AMC';
+        default:
+            return normalized.charAt(0).toUpperCase() + normalized.slice(1);
     }
 }
 

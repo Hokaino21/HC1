@@ -10,7 +10,7 @@ import {
 import { home } from '@/routes';
 import { exportMandatoryTraining } from '@/routes/employees';
 import { pdf as templateLetterPdf } from '@/routes/template-surat';
-import { Employee, TabId, UnitFilter, NavigationItem, TemplateLetterType, SkpExpiryStatus, SkpExpiryAlert, MandatoryTrainingGroup, MandatoryTrainingPreview, EmployeeAvsecArchive, EmployeeDocumentColumn } from '@/types/welcome';
+import { Employee, TabId, UnitFilter, NavigationItem, TemplateLetterType, SkpExpiryStatus, SkpExpiryAlert, MandatoryTrainingGroup, MandatoryTrainingPreview, EmployeeAvsecArchive, EmployeeDocumentColumn, WelcomeProps } from '@/types/welcome';
 import { CalendarIcon, ShieldCheckIcon, AwardIcon, MapPinIcon, LayoutGridIcon, UsersIcon, FileTextIcon, GraduationCapIcon, MenuIcon, UploadIcon, DownloadIcon, EyeIcon, ArchiveIcon, AlertTriangleIcon, CloseIcon, TrashIcon, PencilIcon } from '@/features/shared/components/icons';
 import { getSkpExpiryStatus, getSkpExpiryAlerts, groupEmployeesForMandatoryTraining, buildEmployeeClassKeyMap, applyMandatoryTrainingClassOverrides, parseLocalDate, shuffleEmployees, normalizeCategoryKey } from '@/features/shared/utils';
 import { PlaceholderPanel } from '@/features/shared/components/PlaceholderPanel';

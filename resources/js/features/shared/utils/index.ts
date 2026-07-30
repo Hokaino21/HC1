@@ -191,3 +191,15 @@ export function applyMandatoryTrainingClassOverrides(
 export function normalizeCategoryKey(value: string | null) {
     return value?.trim().toLocaleLowerCase('id-ID') ?? '';
 }
+
+export function getSkpExpiryAlerts(employees: Employee[]): SkpExpiryAlert[] {
+    return employees.reduce<SkpExpiryAlert[]>((alerts, employee) => {
+        const status = getSkpExpiryStatus(employee.skp_expired);
+
+        if (status) {
+            alerts.push({ employee, status });
+        }
+
+        return alerts;
+    }, []);
+}

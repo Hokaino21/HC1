@@ -236,6 +236,13 @@ class EmployeeController extends Controller
         };
     }
 
+    private function isArffLicense(?string $functionCategory): bool
+    {
+        $normalizedLicense = Str::lower(trim((string) $functionCategory));
+
+        return $normalizedLicense === 'arff';
+    }
+
     private function normalizeLicenseCategory(
         ?string $functionCategory,
         ?string $category,
@@ -260,7 +267,7 @@ class EmployeeController extends Controller
             };
         }
 
-        if ($normalizedLicense === 'teknik') {
+        if ($this->isArffLicense($functionCategory)) {
             return match ($normalizedCategory) {
                 'terampil' => 'Terampil',
                 'ahli' => 'Ahli',
@@ -279,9 +286,7 @@ class EmployeeController extends Controller
             return null;
         }
 
-        $normalizedLicense = Str::lower(trim((string) $functionCategory));
-
-        if ($normalizedLicense !== 'teknik') {
+        if (! $this->isArffLicense($functionCategory)) {
             return null;
         }
 
@@ -458,15 +463,15 @@ class EmployeeController extends Controller
             );
         }
 
-        $employeeIsAvsec = in_array(
-            Str::lower(trim((string) $employee->function_category)),
-            ['avsec', 'avsek'],
-            true,
-        );
+        $employeeLicense = Str::lower(trim((string) $employee->function_category));
+        $employeeIsAvsec = in_array($employeeLicense, ['avsec', 'avsek'], true);
+        $employeeIsArff = $this->isArffLicense($employee->function_category);
+        $employeeSupportsCategory = $employeeIsAvsec || $employeeIsArff;
+
         $nextAvsecCategory = Arr::get($validated, 'avsec_category');
 
         if (
-            $employeeIsAvsec &&
+            $employeeSupportsCategory &&
             $employee->avsec_category !== $nextAvsecCategory
         ) {
             EmployeeAvsecArchive::query()->create([
