@@ -10,4 +10,5 @@ Route::get('/employees/template', [EmployeeController::class, 'downloadTemplate'
 Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update');
 Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy');
 Route::post('/employees/export-mandatory-training', [EmployeeController::class, 'exportMandatoryTraining'])->name('employees.export-mandatory-training');
+Route::post('/employees/export-excel', [EmployeeController::class, 'exportExcel'])->name('employees.export-excel');
 Route::get('/template-surat/pdf', [TemplateLetterController::class, 'pdf'])->name('template-surat.pdf');

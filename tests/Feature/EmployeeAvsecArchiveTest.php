@@ -40,7 +40,7 @@ it('does not archive when updating non-avsec employees', function () {
     $employee = Employee::query()->create([
         'nik' => '2002',
         'name' => 'Budi Santoso',
-        'function_category' => 'Teknik',
+        'function_category' => 'AMC',
         'avsec_category' => null,
     ]);
 

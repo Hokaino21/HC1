@@ -276,6 +276,44 @@ it('exports mandatory training participants to a pdf', function () {
         ->assertDownload('daftar-peserta-mandatory.pdf');
 });
 
+it('exports employee data to an xlsx excel file', function () {
+    $employee = Employee::query()->create([
+        'nik' => '1001',
+        'name' => 'Budi Santoso',
+        'unit' => 'teknik',
+        'function_category' => 'Teknik',
+        'avsec_category' => 'Terampil',
+    ]);
+
+    $response = $this->post(route('employees.export-excel'), [
+        'employee_ids' => [$employee->id],
+    ]);
+
+    $response->assertOk();
+    expect($response->headers->get('content-type'))->toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+});
+
+it('supports category Terampil and Ahli for Teknik unit employees', function () {
+    $employee = Employee::query()->create([
+        'nik' => '4001',
+        'name' => 'Eko Prasetyo',
+        'unit' => 'teknik',
+        'function_category' => null,
+    ]);
+
+    $this->put(route('employees.update', $employee), [
+        'nik' => '4001',
+        'name' => 'Eko Prasetyo',
+        'unit' => 'teknik',
+        'avsec_category' => 'Terampil',
+    ])->assertRedirect();
+
+    assertDatabaseHas('employees', [
+        'id' => $employee->id,
+        'avsec_category' => 'Terampil',
+    ]);
+});
+
 it('deletes an employee', function () {
     $employee = Employee::query()->create([
         'nik' => '1001',

@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, ChangeEvent, FormEvent, Fragment, use
 import { router, useForm } from '@inertiajs/react';
 import { Employee, LicenseFilter, MultiLicenseFilter, EmployeeAvsecArchive, EmployeeDocumentColumn, SkpFilter, SkpExpiryAlert } from '@/types/welcome';
 import { store, update, destroy, downloadTemplate } from '@/actions/App/Http/Controllers/EmployeeController';
-import { UploadIcon, TrashIcon, PencilIcon, ArchiveIcon, CloseIcon, AlertTriangleIcon } from '@/features/shared/components/icons';
+import { UploadIcon, TrashIcon, PencilIcon, ArchiveIcon, CloseIcon, AlertTriangleIcon, DownloadIcon } from '@/features/shared/components/icons';
 import { SkpExpiryCell } from '@/features/shared/components/SkpExpiryCell';
 import { parseLocalDate, getSkpExpiryStatus } from '@/features/shared/utils';
 
@@ -346,6 +346,57 @@ export default function EmployeeDataView({
         return filtered.sort(compareEmployees);
     }, [employees, licenseFilter, multiLicenseFilter, searchQuery, skpFilter]);
 
+    const [isExporting, setIsExporting] = useState(false);
+
+    async function handleExportExcel() {
+        if (isExporting) {
+            return;
+        }
+
+        setIsExporting(true);
+
+        try {
+            const idsToExport =
+                checkedEmployeeIds.size > 0
+                    ? Array.from(checkedEmployeeIds)
+                    : filteredEmployees.map((e) => e.id);
+
+            const xsrfMatch = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
+            const csrfToken = xsrfMatch ? decodeURIComponent(xsrfMatch[1]) : '';
+
+            const response = await fetch('/employees/export-excel', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-XSRF-TOKEN': csrfToken,
+                    'Accept':
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                },
+                body: JSON.stringify({ employee_ids: idsToExport }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Gagal mengunduh file Excel.');
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            const timestamp = new Date().toISOString().slice(0, 10);
+            link.setAttribute('download', `data-karyawan-${timestamp}.xlsx`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Export error:', error);
+            alert('Gagal mengekstrak data karyawan ke Excel.');
+        } finally {
+            setIsExporting(false);
+        }
+    }
+
     const editForm = useForm<{
         nik: string;
         name: string;
@@ -659,16 +710,33 @@ export default function EmployeeDataView({
 
 
 
-            <div className="flex flex-wrap gap-3 border-b border-slate-200 bg-slate-50 p-4">
-                <button
-                    type="button"
-                    disabled={checkedEmployeeIds.size === 0}
-                    onClick={deleteSelectedEmployees}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                    <TrashIcon className="h-4 w-4" />
-                    Hapus Terpilih ({checkedEmployeeIds.size})
-                </button>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        disabled={checkedEmployeeIds.size === 0}
+                        onClick={deleteSelectedEmployees}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                        <TrashIcon className="h-4 w-4" />
+                        Hapus Terpilih ({checkedEmployeeIds.size})
+                    </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        onClick={handleExportExcel}
+                        disabled={isExporting || filteredEmployees.length === 0}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                        <DownloadIcon className="h-4 w-4" />
+                        {isExporting
+                            ? 'Mengekstrak...'
+                            : checkedEmployeeIds.size > 0
+                              ? `Ekstrak Excel Terpilih (${checkedEmployeeIds.size})`
+                              : `Ekstrak Excel Data Filter (${filteredEmployees.length})`}
+                    </button>
+                </div>
             </div>
             <div className="flex min-h-[65vh] flex-1 flex-col max-w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                 <div
@@ -1422,6 +1490,10 @@ function EditEmployeeModal({
 }) {
     const avsecLicenseSelected = isAvsecLicense(form.data.function_category);
     const arffLicenseSelected = isArffLicense(form.data.function_category);
+    const teknikSelected = isTeknikLicenseOrUnit(
+        form.data.unit,
+        form.data.function_category,
+    );
     const categoryOptions = getCategoryOptions(
         form.data.unit,
         form.data.function_category,
@@ -1454,7 +1526,25 @@ function EditEmployeeModal({
     }
 
     function updateUnit(nextValue: string | null) {
-        void nextValue;
+        const nextCategoryOptions = getCategoryOptions(
+            nextValue,
+            form.data.function_category,
+        );
+
+        form.setData('unit', nextValue);
+
+        if (!supportsCategory(nextValue, form.data.function_category)) {
+            form.setData('avsec_category', null);
+
+            return;
+        }
+
+        if (
+            form.data.avsec_category &&
+            !nextCategoryOptions.includes(form.data.avsec_category)
+        ) {
+            form.setData('avsec_category', null);
+        }
     }
 
     return (
@@ -1755,7 +1845,9 @@ function EditEmployeeModal({
                                     ? 'Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
                                     : arffLicenseSelected
                                       ? 'Kategori license ARFF tersedia: Terampil dan Ahli. Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
-                                      : 'Kategori hanya aktif untuk license Avsec dan ARFF.'}
+                                      : teknikSelected
+                                        ? 'Kategori unit/license Teknik tersedia: Terampil dan Ahli. Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
+                                        : 'Kategori hanya aktif untuk license Avsec, ARFF, dan unit/license Teknik.'}
                             </p>
                         </div>
 
@@ -2029,27 +2121,34 @@ function isArffLicense(functionCategory: string | null | undefined) {
     return normalizedLicense === 'arff';
 }
 
+function isTeknikLicenseOrUnit(
+    unit: string | null | undefined,
+    functionCategory: string | null | undefined,
+) {
+    const normalizedUnit = unit?.trim().toLowerCase();
+    const normalizedLicense = functionCategory?.trim().toLowerCase();
+
+    return normalizedUnit === 'teknik' || normalizedLicense === 'teknik';
+}
+
 function supportsCategory(
     unit: string | null | undefined,
     functionCategory: string | null | undefined,
 ) {
-    void unit;
-
     return isAvsecLicense(functionCategory) ||
-        isArffLicense(functionCategory);
+        isArffLicense(functionCategory) ||
+        isTeknikLicenseOrUnit(unit, functionCategory);
 }
 
 function getCategoryOptions(
     unit: string | null | undefined,
     functionCategory: string | null | undefined,
 ) {
-    void unit;
-
     if (isAvsecLicense(functionCategory)) {
         return ['Basic', 'Junior', 'Senior'];
     }
 
-    if (isArffLicense(functionCategory)) {
+    if (isArffLicense(functionCategory) || isTeknikLicenseOrUnit(unit, functionCategory)) {
         return ['Terampil', 'Ahli'];
     }
 
@@ -2060,14 +2159,11 @@ function getCategoryPlaceholder(
     unit: string | null | undefined,
     functionCategory: string | null | undefined,
 ) {
-    void unit;
-
-    if (isAvsecLicense(functionCategory) ||
-        isArffLicense(functionCategory)) {
+    if (supportsCategory(unit, functionCategory)) {
         return 'Pilih kategori';
     }
 
-    return 'Hanya untuk license Avsec dan ARFF';
+    return 'Hanya untuk license Avsec, ARFF, dan unit/license Teknik';
 }
 
 function normalizeLicenseValue(value: string | null | undefined): LicenseFilter {

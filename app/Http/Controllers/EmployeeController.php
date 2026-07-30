@@ -236,6 +236,14 @@ class EmployeeController extends Controller
         };
     }
 
+    private function isTeknikLicenseOrUnit(?string $functionCategory, ?string $unit = null): bool
+    {
+        $normalizedLicense = Str::lower(trim((string) $functionCategory));
+        $normalizedUnit = Str::lower(trim((string) $unit));
+
+        return $normalizedLicense === 'teknik' || $normalizedUnit === 'teknik';
+    }
+
     private function isArffLicense(?string $functionCategory): bool
     {
         $normalizedLicense = Str::lower(trim((string) $functionCategory));
@@ -246,6 +254,7 @@ class EmployeeController extends Controller
     private function normalizeLicenseCategory(
         ?string $functionCategory,
         ?string $category,
+        ?string $unit = null,
     ): ?string {
         if ($category === null) {
             return null;
@@ -267,7 +276,7 @@ class EmployeeController extends Controller
             };
         }
 
-        if ($this->isArffLicense($functionCategory)) {
+        if ($this->isArffLicense($functionCategory) || $this->isTeknikLicenseOrUnit($functionCategory, $unit)) {
             return match ($normalizedCategory) {
                 'terampil' => 'Terampil',
                 'ahli' => 'Ahli',
@@ -281,12 +290,13 @@ class EmployeeController extends Controller
     private function normalizeSubLicense(
         ?string $functionCategory,
         ?string $subLicense,
+        ?string $unit = null,
     ): ?string {
         if ($subLicense === null) {
             return null;
         }
 
-        if (! $this->isArffLicense($functionCategory)) {
+        if (! $this->isArffLicense($functionCategory) && ! $this->isTeknikLicenseOrUnit($functionCategory, $unit)) {
             return null;
         }
 
@@ -367,6 +377,98 @@ class EmployeeController extends Controller
             ->implode('');
 
         return '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">'.$cells.'</row></sheetData></worksheet>';
+    }
+
+    /**
+     * @param  array<int, string>  $headers
+     * @param  array<int, array<int, string|null>>  $dataRows
+     */
+    private function employeeDataWorkbook(array $headers, array $dataRows): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'employee-export');
+
+        if ($path === false) {
+            throw ValidationException::withMessages([
+                'employees_export' => 'Export Excel tidak bisa dibuat.',
+            ]);
+        }
+
+        $xlsxPath = $path.'.xlsx';
+        rename($path, $xlsxPath);
+
+        $zip = new ZipArchive;
+        $opened = $zip->open($xlsxPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+
+        if ($opened !== true) {
+            @unlink($xlsxPath);
+
+            throw ValidationException::withMessages([
+                'employees_export' => 'Export Excel tidak bisa dibuat.',
+            ]);
+        }
+
+        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>');
+        $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+        $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data Karyawan" sheetId="1" r:id="rId1"/></sheets></workbook>');
+        $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');
+        $zip->addFromString('xl/worksheets/sheet1.xml', $this->employeeDataSheetXml($headers, $dataRows));
+        $zip->close();
+
+        $content = file_get_contents($xlsxPath);
+        @unlink($xlsxPath);
+
+        if ($content === false) {
+            throw ValidationException::withMessages([
+                'employees_export' => 'Export Excel tidak bisa dibaca.',
+            ]);
+        }
+
+        return $content;
+    }
+
+    /**
+     * @param  array<int, string>  $headers
+     * @param  array<int, array<int, string|null>>  $dataRows
+     */
+    private function employeeDataSheetXml(array $headers, array $dataRows): string
+    {
+        $rowsXml = [];
+
+        $headerCells = collect($headers)
+            ->values()
+            ->map(function (string $value, int $index): string {
+                $cellReference = $this->columnNameFromIndex($index).'1';
+                $escapedValue = htmlspecialchars($value, ENT_XML1);
+
+                return '<c r="'.$cellReference.'" t="inlineStr"><is><t>'.$escapedValue.'</t></is></c>';
+            })
+            ->implode('');
+
+        $rowsXml[] = '<row r="1">'.$headerCells.'</row>';
+
+        foreach ($dataRows as $rowIndexOffset => $rowValues) {
+            $rowNumber = $rowIndexOffset + 2;
+            $dataCells = collect($rowValues)
+                ->values()
+                ->map(function (?string $value, int $index) use ($rowNumber): string {
+                    if ($value === null || $value === '') {
+                        return '';
+                    }
+
+                    $cellReference = $this->columnNameFromIndex($index).$rowNumber;
+                    $escapedValue = htmlspecialchars($value, ENT_XML1);
+
+                    return '<c r="'.$cellReference.'" t="inlineStr"><is><t>'.$escapedValue.'</t></is></c>';
+                })
+                ->filter()
+                ->implode('');
+
+            $rowsXml[] = '<row r="'.$rowNumber.'">'.$dataCells.'</row>';
+        }
+
+        $allRows = implode('', $rowsXml);
+
+        return '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'.$allRows.'</sheetData></worksheet>';
     }
 
     public function store(ImportEmployeesRequest $request): RedirectResponse
@@ -453,6 +555,7 @@ class EmployeeController extends Controller
             $validated['sub_license'] = $this->normalizeSubLicense(
                 Arr::get($validated, 'function_category', $employee->function_category),
                 Arr::get($validated, 'sub_license'),
+                Arr::get($validated, 'unit', $employee->unit),
             );
         }
 
@@ -460,13 +563,15 @@ class EmployeeController extends Controller
             $validated['avsec_category'] = $this->normalizeLicenseCategory(
                 Arr::get($validated, 'function_category', $employee->function_category),
                 Arr::get($validated, 'avsec_category'),
+                Arr::get($validated, 'unit', $employee->unit),
             );
         }
 
         $employeeLicense = Str::lower(trim((string) $employee->function_category));
         $employeeIsAvsec = in_array($employeeLicense, ['avsec', 'avsek'], true);
         $employeeIsArff = $this->isArffLicense($employee->function_category);
-        $employeeSupportsCategory = $employeeIsAvsec || $employeeIsArff;
+        $employeeIsTeknik = $this->isTeknikLicenseOrUnit($employee->function_category, $employee->unit);
+        $employeeSupportsCategory = $employeeIsAvsec || $employeeIsArff || $employeeIsTeknik;
 
         $nextAvsecCategory = Arr::get($validated, 'avsec_category');
 
@@ -530,6 +635,65 @@ class EmployeeController extends Controller
         return $pdf->download(Str::slug($validated['document_title']).'.pdf');
     }
 
+    public function exportExcel(Request $request): \Illuminate\Http\Response
+    {
+        $validated = $request->validate([
+            'employee_ids' => 'nullable|array',
+            'employee_ids.*' => 'integer|exists:employees,id',
+        ]);
+
+        $query = Employee::query();
+
+        if (! empty($validated['employee_ids'])) {
+            $query->whereIn('id', $validated['employee_ids']);
+        }
+
+        $employees = $query
+            ->orderBy('name')
+            ->orderBy('nik')
+            ->orderBy('function_category')
+            ->orderBy('avsec_category')
+            ->orderBy('sub_license')
+            ->orderBy('id')
+            ->get();
+
+        $rows = $employees->map(function (Employee $employee): array {
+            return [
+                $employee->nik,
+                $employee->name,
+                $employee->place_of_birth,
+                $employee->date_of_birth?->format('Y-m-d'),
+                $employee->gender,
+                $employee->position,
+                $employee->pg,
+                $employee->unit ? Str::of($employee->unit)->upper()->toString() : null,
+                $employee->location,
+                $employee->skp_expired?->format('Y-m-d'),
+                $employee->function_category,
+                $employee->training_schedule,
+                $employee->sub_license,
+                $employee->avsec_category,
+                $employee->photo_jpg,
+                $employee->ktp_pdf,
+                $employee->competency_certificate,
+                $employee->latest_certificate,
+                $employee->latest_education_certificate,
+                $employee->license_book,
+                $employee->curriculum_vitae,
+                $employee->skck,
+                $employee->background_check,
+                $employee->whatsapp_number,
+            ];
+        })->all();
+
+        $workbook = $this->employeeDataWorkbook(self::EMPLOYEE_TEMPLATE_COLUMNS, $rows);
+
+        return response($workbook, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="data-karyawan-'.now()->format('Y-m-d').'.xlsx"',
+        ]);
+    }
+
     /**
      * @return array<int, array<string, CarbonImmutable|string|null>>
      */
@@ -580,10 +744,12 @@ class EmployeeController extends Controller
                 'sub_license' => $this->normalizeSubLicense(
                     $this->cellValue($values, $columns['function_category'] ?? null),
                     $this->cellValue($values, $columns['sub_license'] ?? null),
+                    $unit,
                 ),
                 'avsec_category' => $this->normalizeLicenseCategory(
                     $this->cellValue($values, $columns['function_category'] ?? null),
                     $this->cellValue($values, $columns['avsec_category'] ?? null),
+                    $unit,
                 ),
                 ...$this->employeeDocumentCellValues($values, $columns),
             ];
