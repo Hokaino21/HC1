@@ -1842,9 +1842,9 @@ function EditEmployeeModal({
                             </label>
                             <p className="mt-1 text-xs text-slate-500">
                                 {avsecLicenseSelected
-                                    ? 'Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
+                                    ? 'Kategori Avsec tersedia: Basic, Junior, Senior. Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
                                     : arffLicenseSelected
-                                      ? 'Kategori license ARFF tersedia: Terampil dan Ahli. Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
+                                      ? 'Kategori license ARFF tersedia: Basic, Junior, Senior, . Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
                                       : teknikSelected
                                         ? 'Kategori unit/license Teknik tersedia: Terampil dan Ahli. Riwayat kategori lama akan masuk ke arsip saat kategori aktif diperbarui.'
                                         : 'Kategori hanya aktif untuk license Avsec, ARFF, dan unit/license Teknik.'}
@@ -2144,11 +2144,11 @@ function getCategoryOptions(
     unit: string | null | undefined,
     functionCategory: string | null | undefined,
 ) {
-    if (isAvsecLicense(functionCategory)) {
+    if (isAvsecLicense(functionCategory) || isArffLicense(functionCategory)) {
         return ['Basic', 'Junior', 'Senior'];
     }
 
-    if (isArffLicense(functionCategory) || isTeknikLicenseOrUnit(unit, functionCategory)) {
+    if (isTeknikLicenseOrUnit(unit, functionCategory)) {
         return ['Terampil', 'Ahli'];
     }
 

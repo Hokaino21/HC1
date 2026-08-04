@@ -11,6 +11,7 @@ it('imports sub license and category from csv file', function () {
         '8001,Dian Saputra,Teknik,ALS,Ahli',
         '8002,Sari Aminah,Avsec,,Junior',
         '8003,Rendra Kurniawan,AMC,PSS,Terampil',
+        '8004,Budi Santoso,ARFF,,Junior',
     ]));
 
     $this->post(route('employees.import'), [
@@ -36,6 +37,13 @@ it('imports sub license and category from csv file', function () {
         'function_category' => 'AMC',
         'sub_license' => null,
         'avsec_category' => null,
+    ]);
+
+    assertDatabaseHas('employees', [
+        'nik' => '8004',
+        'function_category' => 'ARFF',
+        'sub_license' => null,
+        'avsec_category' => 'Junior',
     ]);
 
     assertDatabaseMissing('employees', [

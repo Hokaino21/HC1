@@ -267,20 +267,20 @@ class EmployeeController extends Controller
             return null;
         }
 
-        if ($normalizedLicense === 'avsec' || $normalizedLicense === 'avsek') {
+        if ($normalizedLicense === 'avsec' || $normalizedLicense === 'avsek' || $this->isArffLicense($functionCategory)) {
             return match ($normalizedCategory) {
                 'basic' => 'Basic',
                 'junior' => 'Junior',
                 'senior' => 'Senior',
-                default => $category,
+                default => null,
             };
         }
 
-        if ($this->isArffLicense($functionCategory) || $this->isTeknikLicenseOrUnit($functionCategory, $unit)) {
+        if ($this->isTeknikLicenseOrUnit($functionCategory, $unit)) {
             return match ($normalizedCategory) {
                 'terampil' => 'Terampil',
                 'ahli' => 'Ahli',
-                default => $category,
+                default => null,
             };
         }
 
