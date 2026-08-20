@@ -107,6 +107,15 @@ export default function MandatoryTrainingView({
         [filteredEmployees, classes],
     );
 
+    const displayedGroups = useMemo(() => {
+        if (searchQuery.trim() || skpFilter) {
+            return groupedEmployees.filter(
+                (group) => group.employees.length > 0,
+            );
+        }
+        return groupedEmployees;
+    }, [groupedEmployees, searchQuery, skpFilter]);
+
     // Class map to quickly look up total count from server classes prop
     const classCountMap = useMemo(() => {
         const map = new Map<number, number>();
@@ -426,8 +435,8 @@ export default function MandatoryTrainingView({
             </div>
 
             {/* List of Classes */}
-            {groupedEmployees.length > 0 ? (
-                groupedEmployees.map((group) => {
+            {displayedGroups.length > 0 ? (
+                displayedGroups.map((group) => {
                     const tableColumns = [
                         ...mandatoryTrainingBaseColumns,
                         'Pindah Kelas',
@@ -677,7 +686,13 @@ export default function MandatoryTrainingView({
                     );
                 })
             ) : (
-                <PlaceholderPanel text="Belum ada data kelas atau karyawan untuk daftar diklat mandatory." />
+                <PlaceholderPanel
+                    text={
+                        searchQuery.trim() || skpFilter
+                            ? 'Tidak ada peserta atau kelas yang sesuai dengan filter pencarian.'
+                            : 'Belum ada data kelas atau karyawan untuk daftar diklat mandatory.'
+                    }
+                />
             )}
 
             {/* Modal: Tambah Kelas */}
