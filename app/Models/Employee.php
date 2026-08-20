@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
@@ -31,6 +32,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $skck
  * @property string|null $background_check
  * @property string|null $whatsapp_number
+ * @property int|null $mandatory_training_class_id
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -59,6 +61,7 @@ use Illuminate\Support\Carbon;
     'skck',
     'background_check',
     'whatsapp_number',
+    'mandatory_training_class_id',
 ])]
 class Employee extends Model
 {
@@ -80,5 +83,10 @@ class Employee extends Model
         return $this->hasMany(EmployeeAvsecArchive::class)
             ->orderByDesc('archived_at')
             ->orderByDesc('id');
+    }
+
+    public function mandatoryTrainingClass(): BelongsTo
+    {
+        return $this->belongsTo(MandatoryTrainingClass::class, 'mandatory_training_class_id');
     }
 }

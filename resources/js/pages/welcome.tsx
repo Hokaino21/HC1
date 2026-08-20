@@ -50,6 +50,7 @@ const navigationItems: NavigationItem[] = [
 
 export default function Welcome({
     employees = [],
+    mandatory_training_classes = [],
     filters = { license: null },
 }: WelcomeProps) {
     const [activeTab, setActiveTab] = useState<TabId>('dashboard');
@@ -149,7 +150,10 @@ export default function Welcome({
                                 initialLicenseFilter={filters.license ?? ''}
                             />
                         ) : activeTab === 'diklat' ? (
-                            <MandatoryTrainingView employees={employees} />
+                            <MandatoryTrainingView
+                                employees={employees}
+                                classes={mandatory_training_classes}
+                            />
                         ) : activeTab === 'template' ? (
                             <TemplateLetterView />
                         ) : activeTab === 'dashboard' ? (

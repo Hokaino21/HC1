@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\ImportEmployeesRequest;
 use App\Models\Employee;
 use App\Models\EmployeeAvsecArchive;
+use App\Models\MandatoryTrainingClass;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -98,6 +99,23 @@ class EmployeeController extends Controller
 
         $license = $this->normalizeLicenseFilter($license);
 
+        $this->ensureAutoGroupedClassesForUnassignedEmployees();
+
+        $classes = MandatoryTrainingClass::query()
+            ->withCount('employees')
+            ->orderBy('function_category')
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (MandatoryTrainingClass $class): array => [
+                'id' => $class->id,
+                'name' => $class->name,
+                'function_category' => $class->function_category,
+                'employees_count' => $class->employees_count,
+            ])
+            ->values()
+            ->all();
+
         $employees = Employee::query()
             ->with('avsecArchives')
             ->orderBy('name')
@@ -142,6 +160,7 @@ class EmployeeController extends Controller
                 'sub_license' => $employee->sub_license,
                 'training_schedule' => $employee->training_schedule,
                 'avsec_category' => $employee->avsec_category,
+                'mandatory_training_class_id' => $employee->mandatory_training_class_id,
                 'avsec_archives' => $employee->avsecArchives->map(fn ($archive): array => [
                     'id' => (string) $archive->id,
                     'nik' => $archive->nik,
@@ -175,10 +194,145 @@ class EmployeeController extends Controller
 
         return Inertia::render('welcome', [
             'employees' => $employees,
+            'mandatory_training_classes' => $classes,
             'filters' => [
                 'license' => $license,
             ],
         ]);
+    }
+
+    private function ensureAutoGroupedClassesForUnassignedEmployees(): void
+    {
+        $unassignedEmployees = Employee::query()
+            ->whereNull('mandatory_training_class_id')
+            ->orderBy('function_category')
+            ->orderBy('skp_expired')
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get();
+
+        if ($unassignedEmployees->isEmpty()) {
+            return;
+        }
+
+        $categoryGroups = [];
+
+        foreach ($unassignedEmployees as $employee) {
+            $skpExpired = $employee->skp_expired?->format('Y-m-d');
+            $functionCategory = $employee->function_category;
+            $functionKey = $functionCategory ? Str::lower(trim($functionCategory)) : 'empty';
+            $key = ($skpExpired ?? 'empty').'::'.$functionKey;
+
+            if (! isset($categoryGroups[$key])) {
+                $categoryGroups[$key] = [
+                    'skpExpired' => $skpExpired,
+                    'functionCategory' => $functionCategory,
+                    'employees' => [],
+                ];
+            }
+
+            $categoryGroups[$key]['employees'][] = $employee;
+        }
+
+        $existingClasses = MandatoryTrainingClass::query()
+            ->withCount('employees')
+            ->get();
+
+        $categoryTableCounters = [];
+
+        foreach ($categoryGroups as $group) {
+            $functionKey = $group['functionCategory'] ? Str::lower(trim($group['functionCategory'])) : 'empty';
+            $employees = $group['employees'];
+            $totalEmployees = count($employees);
+            $perClass = MandatoryTrainingClassController::MAX_PARTICIPANTS_PER_CLASS;
+            $totalTables = (int) ceil($totalEmployees / $perClass);
+
+            for ($tableIndex = 0; $tableIndex < $totalTables; $tableIndex++) {
+                $startIndex = $tableIndex * $perClass;
+                $tableEmployees = array_slice($employees, $startIndex, $perClass);
+
+                if (empty($tableEmployees)) {
+                    continue;
+                }
+
+                $tableNumber = $tableIndex + 1;
+                $baseName = $group['functionCategory'] ?? 'Belum diisi';
+                $className = trim($baseName).' '.$tableNumber;
+
+                $class = $this->findOrCreateAvailableClass(
+                    $existingClasses,
+                    $className,
+                    $group['functionCategory'],
+                );
+
+                $classEmployeesCount = $class->employees_count ?? 0;
+                $remainingSlots = $perClass - $classEmployeesCount;
+                $employeesToAssign = array_slice($tableEmployees, 0, $remainingSlots);
+
+                foreach ($employeesToAssign as $emp) {
+                    $emp->mandatory_training_class_id = $class->id;
+                    $emp->save();
+                    $classEmployeesCount++;
+                }
+            }
+        }
+    }
+
+    private function findOrCreateAvailableClass(
+        $existingClasses,
+        string $proposedName,
+        ?string $functionCategory,
+    ): MandatoryTrainingClass {
+        $perClass = MandatoryTrainingClassController::MAX_PARTICIPANTS_PER_CLASS;
+        $candidates = $existingClasses->filter(
+            fn (MandatoryTrainingClass $c): bool => ($c->function_category === null && $functionCategory === null) ||
+                ($c->function_category !== null && $functionCategory !== null &&
+                    Str::lower(trim($c->function_category)) === Str::lower(trim($functionCategory))),
+        );
+
+        $availableExisting = $candidates->first(
+            fn (MandatoryTrainingClass $c): bool => ($c->employees_count ?? 0) < $perClass,
+        );
+
+        if ($availableExisting) {
+            return $availableExisting;
+        }
+
+        $baseName = trim($functionCategory ?? 'Belum diisi');
+        $number = 1;
+
+        while (true) {
+            $className = $baseName.' '.$number;
+            $existingWithSameName = MandatoryTrainingClass::query()
+                ->where('name', $className)
+                ->when(
+                    $functionCategory !== null,
+                    fn ($q) => $q->where('function_category', $functionCategory),
+                    fn ($q) => $q->whereNull('function_category'),
+                )
+                ->first();
+
+            if (! $existingWithSameName) {
+                break;
+            }
+
+            if (($existingWithSameName->employees()->count()) < $perClass) {
+                $existingWithSameName->loadCount('employees');
+
+                return $existingWithSameName;
+            }
+
+            $number++;
+        }
+
+        $created = MandatoryTrainingClass::query()->create([
+            'name' => $className,
+            'function_category' => $functionCategory,
+        ]);
+        $created->employees_count = 0;
+        $existingClasses->push($created);
+
+        return $created;
     }
 
     private function employeePersonKey(?string $nik): string

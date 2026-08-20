@@ -1,4 +1,4 @@
-import { Employee, MandatoryTrainingGroup, SkpExpiryAlert, SkpExpiryStatus } from '@/types/welcome';
+import { Employee, MandatoryTrainingClass, MandatoryTrainingGroup, SkpExpiryAlert, SkpExpiryStatus } from '@/types/welcome';
 
 export const mandatoryTrainingRowsPerTable = 25;
 
@@ -16,12 +16,10 @@ export function getSkpExpiryStatus(value: string | null): SkpExpiryStatus | null
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Calculate months between today and expiry date
     const yearsDiff = expiryDate.getFullYear() - today.getFullYear();
     const monthsDiff = expiryDate.getMonth() - today.getMonth();
     const totalMonthsDiff = yearsDiff * 12 + monthsDiff;
 
-    // Adjust for day of month
     const adjustedMonthsUntilExpiry =
         totalMonthsDiff + (expiryDate.getDate() >= today.getDate() ? 0 : -1);
 
@@ -53,89 +51,82 @@ export function parseLocalDate(value: string) {
     return new Date(year, month - 1, day);
 }
 
-// export function formatSkpExpiryMonthYear(value: string | null) {
-//     if (!value) {
-//         return 'Belum diisi';
-//     }
-//
-//     const date = parseLocalDate(value);
-//
-//     if (!date) {
-//         return value;
-//     }
-//
-//     return new Intl.DateTimeFormat('id-ID', {
-//         month: 'long',
-//         year: 'numeric',
-//     }).format(date);
-// }
-
 export function groupEmployeesForMandatoryTraining(
     employees: Employee[],
+    classes: MandatoryTrainingClass[] = [],
 ): MandatoryTrainingGroup[] {
-    const categoryGroups = new Map<
-        string,
-        Pick<
-            MandatoryTrainingGroup,
-            'key' | 'skpExpired' | 'functionCategory' | 'employees'
-        >
-    >();
+    const classesById = new Map<number, MandatoryTrainingClass>();
+    classes.forEach((cls) => classesById.set(cls.id, cls));
 
-    shuffleEmployees(employees).forEach((employee) => {
-        const skpExpired = employee.skp_expired;
-        const functionCategory = employee.function_category;
-        const functionKey = normalizeCategoryKey(functionCategory);
-        const key = `${skpExpired ?? 'empty'}::${functionKey || 'empty'}`;
-        const group = categoryGroups.get(key);
+    const classEmployeesMap = new Map<number, Employee[]>();
+    const functionCategoryByClassId = new Map<number, string | null>();
+    const classNameByClassId = new Map<number, string>();
 
-        if (group) {
-            group.employees.push(employee);
-
-            return;
-        }
-
-        categoryGroups.set(key, {
-            key,
-            skpExpired,
-            functionCategory,
-            employees: [employee],
-        });
+    classes.forEach((cls) => {
+        classEmployeesMap.set(cls.id, []);
+        functionCategoryByClassId.set(cls.id, cls.function_category);
+        classNameByClassId.set(cls.id, cls.name);
     });
 
-    const categoryTableCounters = new Map<string, number>();
+    employees.forEach((employee) => {
+        const classId = employee.mandatory_training_class_id;
+        if (classId == null) {
+            return;
+        }
+        if (!classEmployeesMap.has(classId)) {
+            classEmployeesMap.set(classId, []);
+        }
+        classEmployeesMap.get(classId)!.push(employee);
+    });
+
+    const categoryClassCounters = new Map<string, number>();
+    const totalByCategory = new Map<string, number>();
+
+    const sortedClassIds = Array.from(classesById.keys()).sort((a, b) => {
+        const clsA = classesById.get(a);
+        const clsB = classesById.get(b);
+        const catA = normalizeCategoryKey(clsA?.function_category ?? '');
+        const catB = normalizeCategoryKey(clsB?.function_category ?? '');
+        if (catA !== catB) return catA.localeCompare(catB);
+        const nameA = clsA?.name ?? '';
+        const nameB = clsB?.name ?? '';
+        return nameA.localeCompare(nameB, 'id-ID');
+    });
+
+    sortedClassIds.forEach((classId) => {
+        const funcCat = functionCategoryByClassId.get(classId) ?? '';
+        const key = normalizeCategoryKey(funcCat);
+        totalByCategory.set(key, (totalByCategory.get(key) ?? 0) + 1);
+    });
+
     const allGroups: MandatoryTrainingGroup[] = [];
 
-    for (const group of categoryGroups.values()) {
-        const functionKey = normalizeCategoryKey(group.functionCategory);
-        const totalTables = Math.ceil(
-            group.employees.length / mandatoryTrainingRowsPerTable,
-        );
-        const startTableNumber =
-            (categoryTableCounters.get(functionKey) ?? 0) + 1;
+    sortedClassIds.forEach((classId) => {
+        const emps = classEmployeesMap.get(classId) ?? [];
+        const funcCat = functionCategoryByClassId.get(classId) ?? null;
+        const key = normalizeCategoryKey(funcCat);
+        const currentNumber = (categoryClassCounters.get(key) ?? 0) + 1;
+        categoryClassCounters.set(key, currentNumber);
 
-        for (let tableIndex = 0; tableIndex < totalTables; tableIndex++) {
-            const startIndex = tableIndex * mandatoryTrainingRowsPerTable;
-            const groupEmployees = group.employees.slice(
-                startIndex,
-                startIndex + mandatoryTrainingRowsPerTable,
-            );
-            const tableNumber = startTableNumber + tableIndex;
+        const firstSkpExpired = emps[0]?.skp_expired ?? null;
 
-            allGroups.push({
-                ...group,
-                key: `${group.key}::${tableNumber}`,
-                employees: groupEmployees,
-                tableNumber,
-                totalTables,
-                totalCategoryEmployees: group.employees.length,
-            });
-        }
-
-        categoryTableCounters.set(
-            functionKey,
-            (categoryTableCounters.get(functionKey) ?? 0) + totalTables,
-        );
-    }
+        allGroups.push({
+            key: `class-${classId}`,
+            classId,
+            skpExpired: firstSkpExpired,
+            functionCategory: funcCat,
+            employees: emps.sort((a, b) => {
+                const nameA = a.name.toLowerCase();
+                const nameB = b.name.toLowerCase();
+                if (nameA !== nameB) return nameA.localeCompare(nameB);
+                return a.nik.localeCompare(b.nik);
+            }),
+            tableNumber: currentNumber,
+            totalTables: totalByCategory.get(key) ?? 1,
+            totalCategoryEmployees: emps.length,
+            className: classNameByClassId.get(classId) ?? `Kelas ${classId}`,
+        });
+    });
 
     return allGroups;
 }
@@ -166,6 +157,18 @@ export function buildEmployeeClassKeyMap(groups: MandatoryTrainingGroup[]) {
     return employeeClassKeys;
 }
 
+export function buildEmployeeClassIdMap(groups: MandatoryTrainingGroup[]) {
+    const employeeClassIds = new Map<number, number>();
+
+    groups.forEach((group) => {
+        group.employees.forEach((employee) => {
+            employeeClassIds.set(employee.id, group.classId);
+        });
+    });
+
+    return employeeClassIds;
+}
+
 export function applyMandatoryTrainingClassOverrides(
     groups: MandatoryTrainingGroup[],
     classOverrides: Record<number, string>,
@@ -188,6 +191,7 @@ export function applyMandatoryTrainingClassOverrides(
 
     return groupCopies;
 }
+
 export function normalizeCategoryKey(value: string | null) {
     return value?.trim().toLocaleLowerCase('id-ID') ?? '';
 }

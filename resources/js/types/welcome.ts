@@ -33,6 +33,7 @@ export type Employee = {
     avsec_category: string | null;
     has_multiple_licenses: boolean;
     license_count_by_name: number;
+    mandatory_training_class_id: number | null;
     avsec_archives: EmployeeAvsecArchive[];
     photo_jpg: string | null;
     ktp_pdf: string | null;
@@ -44,6 +45,13 @@ export type Employee = {
     skck: string | null;
     background_check: string | null;
     whatsapp_number: string | null;
+};
+
+export type MandatoryTrainingClass = {
+    id: number;
+    name: string;
+    function_category: string | null;
+    employees_count: number;
 };
 
 export type EmployeeAvsecArchive = {
@@ -94,6 +102,7 @@ export type EmployeeDocumentColumn = {
 
 export type WelcomeProps = {
     employees: Employee[];
+    mandatory_training_classes: MandatoryTrainingClass[];
     filters: {
         license: LicenseFilter | null;
     };
@@ -111,12 +120,14 @@ export type SkpExpiryAlert = {
 
 export type MandatoryTrainingGroup = {
     key: string;
+    classId: number;
     skpExpired: string | null;
     functionCategory: string | null;
     employees: Employee[];
     tableNumber: number;
     totalTables: number;
     totalCategoryEmployees: number;
+    className: string;
 };
 
 export type MandatoryTrainingPreview = {

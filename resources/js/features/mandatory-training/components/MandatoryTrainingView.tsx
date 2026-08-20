@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { Employee, MandatoryTrainingPreview } from '@/types/welcome';
-import { exportMandatoryTraining } from '@/routes/employees';
-import { groupEmployeesForMandatoryTraining, buildEmployeeClassKeyMap, applyMandatoryTrainingClassOverrides, getSkpExpiryStatus } from '@/features/shared/utils';
+import { router } from '@inertiajs/react';
+import { Employee, MandatoryTrainingClass, MandatoryTrainingPreview } from '@/types/welcome';
+import { exportMandatoryTraining, moveToClass } from '@/routes/employees';
+import { store as storeClass, update as updateClass, destroy as destroyClass } from '@/routes/mandatory-training-classes';
+import { groupEmployeesForMandatoryTraining, getSkpExpiryStatus } from '@/features/shared/utils';
 import { PlaceholderPanel } from '@/features/shared/components/PlaceholderPanel';
 import { SkpExpiryCell } from '@/features/shared/components/SkpExpiryCell';
-import { DownloadIcon, EyeIcon } from '@/features/shared/components/icons';
+import { DownloadIcon, EyeIcon, PlusIcon, PencilIcon, TrashIcon, CloseIcon } from '@/features/shared/components/icons';
 
 const mandatoryTrainingBaseColumns = [
     'No',
@@ -16,24 +18,45 @@ const mandatoryTrainingBaseColumns = [
     'License',
 ];
 
+const MAX_PARTICIPANTS_PER_CLASS = 25;
+
 type MandatoryTrainingSkpFilter = '' | 'expired' | 'within_year' | 'active';
 
-export default function MandatoryTrainingView({ employees }: { employees: Employee[] }) {
+export default function MandatoryTrainingView({
+    employees,
+    classes = [],
+}: {
+    employees: Employee[];
+    classes?: MandatoryTrainingClass[];
+}) {
     const [checkedEmployeeIds, setCheckedEmployeeIds] = useState<Set<number>>(
         () => new Set(),
     );
-    const [classOverrides, setClassOverrides] = useState<
-        Record<number, string>
-    >({});
     const [batchNames, setBatchNames] = useState<Record<string, string>>({});
-    const [documentTitles, setDocumentTitles] = useState<
-        Record<string, string>
-    >({});
+    const [documentTitles, setDocumentTitles] = useState<Record<string, string>>({});
     const [searchQuery, setSearchQuery] = useState('');
-    const [skpFilter, setSkpFilter] =
-        useState<MandatoryTrainingSkpFilter>('');
-    const [previewData, setPreviewData] =
-        useState<MandatoryTrainingPreview | null>(null);
+    const [skpFilter, setSkpFilter] = useState<MandatoryTrainingSkpFilter>('');
+    const [previewData, setPreviewData] = useState<MandatoryTrainingPreview | null>(null);
+
+    // Modal state for Create Class
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [newClassName, setNewClassName] = useState('');
+    const [newClassCategory, setNewClassCategory] = useState('');
+    const [isCreatingClass, setIsCreatingClass] = useState(false);
+
+    // Modal state for Edit Class
+    const [editingClass, setEditingClass] = useState<{
+        id: number;
+        name: string;
+        function_category: string | null;
+    } | null>(null);
+    const [editClassName, setEditClassName] = useState('');
+    const [editClassCategory, setEditClassCategory] = useState('');
+    const [isUpdatingClass, setIsUpdatingClass] = useState(false);
+
+    // Loading states for actions
+    const [isDeletingClassId, setIsDeletingClassId] = useState<number | null>(null);
+    const [movingEmployeeId, setMovingEmployeeId] = useState<number | null>(null);
 
     const filteredEmployees = useMemo(() => {
         let filtered = employees;
@@ -79,26 +102,19 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
         return filtered;
     }, [employees, searchQuery, skpFilter]);
 
-    const generatedGroups = useMemo(
-        () => groupEmployeesForMandatoryTraining(filteredEmployees),
-        [filteredEmployees],
-    );
-    const baseEmployeeClassKeys = useMemo(
-        () => buildEmployeeClassKeyMap(generatedGroups),
-        [generatedGroups],
-    );
     const groupedEmployees = useMemo(
-        () =>
-            applyMandatoryTrainingClassOverrides(
-                generatedGroups,
-                classOverrides,
-            ),
-        [classOverrides, generatedGroups],
+        () => groupEmployeesForMandatoryTraining(filteredEmployees, classes),
+        [filteredEmployees, classes],
     );
-    const classOptions = groupedEmployees.map((group) => ({
-        key: group.key,
-        label: `${group.functionCategory || 'Belum diisi'} ${group.tableNumber}`,
-    }));
+
+    // Class map to quickly look up total count from server classes prop
+    const classCountMap = useMemo(() => {
+        const map = new Map<number, number>();
+        classes.forEach((cls) => {
+            map.set(cls.id, cls.employees_count ?? 0);
+        });
+        return map;
+    }, [classes]);
 
     function toggleEmployeeCheck(employeeId: number) {
         setCheckedEmployeeIds((currentIds) => {
@@ -138,19 +154,146 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
         });
     }
 
-    function moveEmployeeToClass(employeeId: number, targetClassKey: string) {
-        setClassOverrides((currentOverrides) => {
-            const nextOverrides = { ...currentOverrides };
-            const baseClassKey = baseEmployeeClassKeys.get(employeeId);
+    function handleMoveEmployee(employeeId: number, targetClassId: number) {
+        if (!targetClassId) {
+            return;
+        }
 
-            if (!baseClassKey || targetClassKey === baseClassKey) {
-                delete nextOverrides[employeeId];
-            } else {
-                nextOverrides[employeeId] = targetClassKey;
-            }
+        setMovingEmployeeId(employeeId);
+        router.put(
+            moveToClass.url({ employee: employeeId }),
+            { mandatory_training_class_id: targetClassId },
+            {
+                preserveScroll: true,
+                preserveState: true,
+                onFinish: () => {
+                    setMovingEmployeeId(null);
+                },
+                onError: (errors) => {
+                    const message =
+                        errors.mandatory_training_class_id ||
+                        Object.values(errors)[0] ||
+                        'Gagal memindahkan peserta.';
+                    alert(message);
+                },
+            },
+        );
+    }
 
-            return nextOverrides;
+    function handleCreateClass(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newClassName.trim()) {
+            alert('Nama kelas harus diisi.');
+            return;
+        }
+
+        setIsCreatingClass(true);
+        router.post(
+            storeClass.url(),
+            {
+                name: newClassName.trim(),
+                function_category: newClassCategory.trim() || null,
+            },
+            {
+                preserveScroll: true,
+                preserveState: true,
+                onSuccess: () => {
+                    setIsCreateModalOpen(false);
+                    setNewClassName('');
+                    setNewClassCategory('');
+                },
+                onFinish: () => {
+                    setIsCreatingClass(false);
+                },
+                onError: (errors) => {
+                    const message =
+                        errors.name ||
+                        errors.function_category ||
+                        Object.values(errors)[0] ||
+                        'Gagal menambahkan kelas.';
+                    alert(message);
+                },
+            },
+        );
+    }
+
+    function openEditClassModal(group: {
+        classId: number;
+        className: string;
+        functionCategory: string | null;
+    }) {
+        setEditingClass({
+            id: group.classId,
+            name: group.className,
+            function_category: group.functionCategory,
         });
+        setEditClassName(group.className);
+        setEditClassCategory(group.functionCategory || '');
+    }
+
+    function handleUpdateClass(e: React.FormEvent) {
+        e.preventDefault();
+        if (!editingClass || !editClassName.trim()) {
+            alert('Nama kelas harus diisi.');
+            return;
+        }
+
+        setIsUpdatingClass(true);
+        router.put(
+            updateClass.url({ mandatoryTrainingClass: editingClass.id }),
+            {
+                name: editClassName.trim(),
+                function_category: editClassCategory.trim() || null,
+            },
+            {
+                preserveScroll: true,
+                preserveState: true,
+                onSuccess: () => {
+                    setEditingClass(null);
+                },
+                onFinish: () => {
+                    setIsUpdatingClass(false);
+                },
+                onError: (errors) => {
+                    const message =
+                        errors.name ||
+                        errors.function_category ||
+                        Object.values(errors)[0] ||
+                        'Gagal memperbarui kelas.';
+                    alert(message);
+                },
+            },
+        );
+    }
+
+    function handleDeleteClass(classId: number, className: string, currentCount: number) {
+        if (currentCount > 0) {
+            alert(`Kelas "${className}" tidak bisa dihapus karena masih memiliki ${currentCount} peserta.`);
+            return;
+        }
+
+        if (!window.confirm(`Apakah Anda yakin ingin menghapus kelas "${className}"? Data karyawan tidak akan terhapus.`)) {
+            return;
+        }
+
+        setIsDeletingClassId(classId);
+        router.delete(
+            destroyClass.url({ mandatoryTrainingClass: classId }),
+            {
+                preserveScroll: true,
+                preserveState: true,
+                onFinish: () => {
+                    setIsDeletingClassId(null);
+                },
+                onError: (errors) => {
+                    const message =
+                        errors.class ||
+                        Object.values(errors)[0] ||
+                        'Gagal menghapus kelas.';
+                    alert(message);
+                },
+            },
+        );
     }
 
     function submitMandatoryTrainingExport(preview: MandatoryTrainingPreview) {
@@ -208,7 +351,6 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
 
         if (selectedEmployees.length === 0) {
             alert('Pilih minimal satu karyawan untuk dipreview');
-
             return;
         }
 
@@ -217,7 +359,7 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
             documentTitle: documentTitles[groupKey] || 'DAFTAR PESERTA',
             batchName: batchNames[groupKey] || `Kelas-${group.tableNumber}`,
             functionCategory: group.functionCategory,
-            classLabel: `${group.functionCategory || 'Belum diisi'} ${group.tableNumber}`,
+            classLabel: group.className,
             employees: selectedEmployees,
         });
     }
@@ -233,42 +375,62 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
 
     return (
         <section className="flex min-h-full flex-col gap-4">
+            {/* Top Toolbar */}
             <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
-                    <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
-                        Cari (NIK, Nama, License)
-                        <input
-                            type="text"
-                            placeholder="Cari karyawan..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
-                        />
-                    </label>
-                    <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
-                        Filter SKP Expired
-                        <select
-                            value={skpFilter}
-                            onChange={(e) =>
-                                setSkpFilter(
-                                    e.target.value as MandatoryTrainingSkpFilter,
-                                )
-                            }
-                            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
+                        <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
+                            Cari (NIK, Nama, License)
+                            <input
+                                type="text"
+                                placeholder="Cari karyawan..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                            />
+                        </label>
+                        <label className="flex w-full flex-col gap-2 text-sm font-medium text-slate-700 sm:max-w-xs">
+                            Filter SKP Expired
+                            <select
+                                value={skpFilter}
+                                onChange={(e) =>
+                                    setSkpFilter(
+                                        e.target.value as MandatoryTrainingSkpFilter,
+                                    )
+                                }
+                                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                            >
+                                <option value="">Semua</option>
+                                <option value="expired">Expired</option>
+                                <option value="within_year">Dalam 1 Tahun</option>
+                                <option value="active">Aktif</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setNewClassName('');
+                                setNewClassCategory('');
+                                setIsCreateModalOpen(true);
+                            }}
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6]"
                         >
-                            <option value="">Semua</option>
-                            <option value="expired">Expired</option>
-                            <option value="within_year">Dalam 1 Tahun</option>
-                            <option value="active">Aktif</option>
-                        </select>
-                    </label>
+                            <PlusIcon className="h-4 w-4" />
+                            Tambah Kelas
+                        </button>
+                    </div>
                 </div>
             </div>
+
+            {/* List of Classes */}
             {groupedEmployees.length > 0 ? (
                 groupedEmployees.map((group) => {
                     const tableColumns = [
                         ...mandatoryTrainingBaseColumns,
-                        ' Kelas',
+                        'Pindah Kelas',
                         'Ceklis',
                     ];
                     const groupIds = group.employees.map((e) => e.id);
@@ -279,32 +441,85 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
                         groupIds.length > 0 &&
                         groupCheckedCount === groupIds.length;
 
+                    const totalInDb = classCountMap.get(group.classId) ?? group.employees.length;
+                    const isFull = totalInDb >= MAX_PARTICIPANTS_PER_CLASS;
+                    const isEmptyClass = totalInDb === 0;
+
                     return (
                         <div
                             key={group.key}
                             className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
                         >
+                            {/* Class Card Header */}
                             <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-100 px-4 py-3">
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <span className="rounded-lg bg-[#4863df]/10 px-3 py-1 text-sm font-semibold text-[#2f4585] ring-1 ring-[#4863df]/20">
-                                        License:{' '}
-                                        {group.functionCategory ??
-                                            'Belum diisi'}
-                                    </span>
-                                    <span className="text-sm font-semibold text-slate-500">
-                                        {group.functionCategory ||
-                                            'Belum diisi'}{' '}
-                                        {group.tableNumber}
-                                    </span>
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <span className="rounded-lg bg-[#4863df]/10 px-3 py-1 text-sm font-semibold text-[#2f4585] ring-1 ring-[#4863df]/20">
+                                            License: {group.functionCategory ?? 'Belum diisi'}
+                                        </span>
+                                        <span className="text-base font-bold text-slate-800">
+                                            {group.className}
+                                        </span>
+                                        <span
+                                            className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                                isFull
+                                                    ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300'
+                                                    : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
+                                            }`}
+                                        >
+                                            {totalInDb} / {MAX_PARTICIPANTS_PER_CLASS} Peserta
+                                            {isFull ? ' (Penuh)' : ''}
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => openEditClassModal(group)}
+                                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                                            title="Edit Nama / Kategori Kelas"
+                                        >
+                                            <PencilIcon className="h-3.5 w-3.5 text-slate-500" />
+                                            Edit
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                handleDeleteClass(
+                                                    group.classId,
+                                                    group.className,
+                                                    totalInDb,
+                                                )
+                                            }
+                                            disabled={
+                                                !isEmptyClass ||
+                                                isDeletingClassId === group.classId
+                                            }
+                                            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium shadow-sm transition ${
+                                                isEmptyClass
+                                                    ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-300'
+                                                    : 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400'
+                                            }`}
+                                            title={
+                                                isEmptyClass
+                                                    ? 'Hapus Kelas'
+                                                    : 'Kelas hanya bisa dihapus jika peserta 0'
+                                            }
+                                        >
+                                            <TrashIcon className="h-3.5 w-3.5" />
+                                            {isDeletingClassId === group.classId
+                                                ? 'Menghapus...'
+                                                : 'Hapus'}
+                                        </button>
+                                    </div>
                                 </div>
+
                                 <div className="flex flex-wrap items-center gap-3">
                                     <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
                                         Judul Dokumen
                                         <input
                                             type="text"
-                                            value={
-                                                documentTitles[group.key] || ''
-                                            }
+                                            value={documentTitles[group.key] || ''}
                                             onChange={(e) =>
                                                 setDocumentTitles((prev) => ({
                                                     ...prev,
@@ -331,26 +546,23 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
                                         />
                                     </label>
                                     <div className="text-sm font-semibold text-slate-600">
-                                        {groupCheckedCount} dari{' '}
-                                        {groupIds.length} data diceklis
+                                        {groupCheckedCount} dari {groupIds.length} data diceklis
                                     </div>
                                     <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm">
                                         <input
                                             type="checkbox"
                                             checked={isAllGroupChecked}
-                                            onChange={() =>
-                                                toggleGroupChecks(group.key)
-                                            }
+                                            onChange={() => toggleGroupChecks(group.key)}
+                                            disabled={groupIds.length === 0}
                                             className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
                                         />
                                         Ceklis semua
                                     </label>
                                     <button
                                         type="button"
-                                        onClick={() =>
-                                            handlePreviewGroup(group.key)
-                                        }
-                                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6]"
+                                        onClick={() => handlePreviewGroup(group.key)}
+                                        disabled={groupCheckedCount === 0}
+                                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3f57c6] disabled:cursor-not-allowed disabled:bg-slate-300"
                                     >
                                         <EyeIcon className="h-4 w-4" />
                                         Preview PDF
@@ -358,114 +570,243 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
                                 </div>
                             </div>
 
+                            {/* Class Table or Empty State */}
                             <div className="overflow-hidden">
-                                <table className="w-full table-fixed border-collapse text-left text-sm">
-                                    <thead className="bg-white text-xs font-semibold text-slate-500 uppercase">
-                                        <tr>
-                                            {tableColumns.map((column) => (
-                                                <th
-                                                    key={column}
-                                                    scope="col"
-                                                    className="border-b border-slate-200 px-4 py-3 whitespace-normal"
-                                                >
-                                                    {column}
-                                                </th>
-                                            ))}
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {group.employees.map(
-                                            (employee, index) => (
-                                                <tr
-                                                    key={employee.id}
-                                                    className="text-slate-700 hover:bg-slate-50"
-                                                >
-                                                    <td className="px-4 py-3">
-                                                        {index + 1}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {employee.nik}
-                                                    </td>
-                                                    <td className="px-4 py-3 font-medium text-slate-900">
-                                                        {employee.name}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {employee.location ??
-                                                            '-'}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {employee.position ??
-                                                            '-'}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <SkpExpiryCell
-                                                            value={
-                                                                employee.skp_expired
-                                                            }
-                                                        />
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {employee.function_category ??
-                                                            '-'}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <select
-                                                            value={group.key}
-                                                            onChange={(event) =>
-                                                                moveEmployeeToClass(
-                                                                    employee.id,
-                                                                    event.target
-                                                                        .value,
-                                                                )
-                                                            }
-                                                            className="h-9 w-full max-w-[220px] rounded-lg border border-slate-300 bg-white px-2 text-sm font-medium text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
-                                                            aria-label={`Pindah kelas ${employee.name}`}
-                                                        >
-                                                            {classOptions.map(
-                                                                (option) => (
-                                                                    <option
-                                                                        key={
-                                                                            option.key
-                                                                        }
-                                                                        value={
-                                                                            option.key
-                                                                        }
-                                                                    >
-                                                                        {
-                                                                            option.label
-                                                                        }
-                                                                    </option>
-                                                                ),
-                                                            )}
-                                                        </select>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-center">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={checkedEmployeeIds.has(
-                                                                employee.id,
-                                                            )}
-                                                            onChange={() =>
-                                                                toggleEmployeeCheck(
-                                                                    employee.id,
-                                                                )
-                                                            }
-                                                            aria-label={`Ceklis ${employee.name}`}
-                                                            className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
-                                                        />
-                                                    </td>
-                                                </tr>
-                                            ),
-                                        )}
-                                    </tbody>
-                                </table>
+                                {group.employees.length > 0 ? (
+                                    <table className="w-full table-fixed border-collapse text-left text-sm">
+                                        <thead className="bg-white text-xs font-semibold text-slate-500 uppercase">
+                                            <tr>
+                                                {tableColumns.map((column) => (
+                                                    <th
+                                                        key={column}
+                                                        scope="col"
+                                                        className="border-b border-slate-200 px-4 py-3 whitespace-normal"
+                                                    >
+                                                        {column}
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {group.employees.map((employee, index) => {
+                                                const isThisMoving = movingEmployeeId === employee.id;
+
+                                                return (
+                                                    <tr
+                                                        key={employee.id}
+                                                        className="text-slate-700 hover:bg-slate-50"
+                                                    >
+                                                        <td className="px-4 py-3">
+                                                            {index + 1}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            {employee.nik}
+                                                        </td>
+                                                        <td className="px-4 py-3 font-medium text-slate-900">
+                                                            {employee.name}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            {employee.location ?? '-'}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            {employee.position ?? '-'}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <SkpExpiryCell
+                                                                value={employee.skp_expired}
+                                                            />
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            {employee.function_category ?? '-'}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <select
+                                                                value={employee.mandatory_training_class_id ?? group.classId}
+                                                                disabled={isThisMoving}
+                                                                onChange={(event) =>
+                                                                    handleMoveEmployee(
+                                                                        employee.id,
+                                                                        Number(event.target.value),
+                                                                    )
+                                                                }
+                                                                className="h-9 w-full max-w-[240px] rounded-lg border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 transition outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20 disabled:bg-slate-100"
+                                                                aria-label={`Pindah kelas ${employee.name}`}
+                                                            >
+                                                                {classes.map((cls) => {
+                                                                    const count = cls.employees_count ?? 0;
+                                                                    const isDestinationFull =
+                                                                        count >= MAX_PARTICIPANTS_PER_CLASS &&
+                                                                        cls.id !== employee.mandatory_training_class_id;
+
+                                                                    return (
+                                                                        <option
+                                                                            key={cls.id}
+                                                                            value={cls.id}
+                                                                            disabled={isDestinationFull}
+                                                                        >
+                                                                            {cls.name} ({count}/{MAX_PARTICIPANTS_PER_CLASS}
+                                                                            {isDestinationFull ? ' - Penuh' : ''})
+                                                                        </option>
+                                                                    );
+                                                                })}
+                                                            </select>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checkedEmployeeIds.has(employee.id)}
+                                                                onChange={() =>
+                                                                    toggleEmployeeCheck(employee.id)
+                                                                }
+                                                                aria-label={`Ceklis ${employee.name}`}
+                                                                className="h-4 w-4 rounded border-slate-300 text-[#4863df] focus:ring-[#4863df]"
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                ) : (
+                                    <div className="p-8 text-center text-sm text-slate-500">
+                                        Belum ada peserta di kelas ini. Peserta dapat dipindahkan ke kelas ini melalui menu Pindah Kelas di kelas lain.
+                                    </div>
+                                )}
                             </div>
                         </div>
                     );
                 })
             ) : (
-                <PlaceholderPanel text="Belum ada data karyawan untuk daftar diklat mandatory." />
+                <PlaceholderPanel text="Belum ada data kelas atau karyawan untuk daftar diklat mandatory." />
             )}
+
+            {/* Modal: Tambah Kelas */}
+            {isCreateModalOpen ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                            <h3 className="text-lg font-bold text-slate-900">
+                                Tambah Kelas Baru
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setIsCreateModalOpen(false)}
+                                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                            >
+                                <CloseIcon className="h-5 w-5" />
+                            </button>
+                        </div>
+                        <form onSubmit={handleCreateClass} className="mt-4 space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700">
+                                    Nama Kelas <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="Contoh: Avsec 3, Teknik 2"
+                                    value={newClassName}
+                                    onChange={(e) => setNewClassName(e.target.value)}
+                                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700">
+                                    Kategori License (Opsional)
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="Contoh: Avsec, Teknik, PKKP"
+                                    value={newClassCategory}
+                                    onChange={(e) => setNewClassCategory(e.target.value)}
+                                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsCreateModalOpen(false)}
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isCreatingClass}
+                                    className="inline-flex h-10 items-center justify-center rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#3f57c6] disabled:bg-slate-400"
+                                >
+                                    {isCreatingClass ? 'Menyimpan...' : 'Simpan Kelas'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            ) : null}
+
+            {/* Modal: Edit Kelas */}
+            {editingClass ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                            <h3 className="text-lg font-bold text-slate-900">
+                                Edit Kelas
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setEditingClass(null)}
+                                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                            >
+                                <CloseIcon className="h-5 w-5" />
+                            </button>
+                        </div>
+                        <form onSubmit={handleUpdateClass} className="mt-4 space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700">
+                                    Nama Kelas <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="Contoh: Avsec 1"
+                                    value={editClassName}
+                                    onChange={(e) => setEditClassName(e.target.value)}
+                                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700">
+                                    Kategori License (Opsional)
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="Contoh: Avsec, Teknik, PKKP"
+                                    value={editClassCategory}
+                                    onChange={(e) => setEditClassCategory(e.target.value)}
+                                    className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-[#4863df] focus:ring-2 focus:ring-[#4863df]/20"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingClass(null)}
+                                    className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isUpdatingClass}
+                                    className="inline-flex h-10 items-center justify-center rounded-lg bg-[#4863df] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#3f57c6] disabled:bg-slate-400"
+                                >
+                                    {isUpdatingClass ? 'Memperbarui...' : 'Simpan Perubahan'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            ) : null}
+
+            {/* Modal: Preview PDF */}
             {previewData ? (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
                     <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -481,9 +822,7 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
                                     Batch: {previewData.batchName}
                                 </span>
                                 <span className="rounded-full bg-slate-100 px-3 py-1">
-                                    License:{' '}
-                                    {previewData.functionCategory ||
-                                        'Belum diisi'}
+                                    License: {previewData.functionCategory || 'Belum diisi'}
                                 </span>
                                 <span className="rounded-full bg-slate-100 px-3 py-1">
                                     Kelas: {previewData.classLabel}
@@ -534,20 +873,16 @@ export default function MandatoryTrainingView({ employees }: { employees: Employ
                                                         {employee.name}
                                                     </td>
                                                     <td className="px-4 py-3">
-                                                        {employee.location ??
-                                                            '-'}
+                                                        {employee.location ?? '-'}
                                                     </td>
                                                     <td className="px-4 py-3">
-                                                        {employee.position ??
-                                                            '-'}
+                                                        {employee.position ?? '-'}
                                                     </td>
                                                     <td className="px-4 py-3">
-                                                        {employee.skp_expired ??
-                                                            '-'}
+                                                        {employee.skp_expired ?? '-'}
                                                     </td>
                                                     <td className="px-4 py-3">
-                                                        {employee.function_category ??
-                                                            '-'}
+                                                        {employee.function_category ?? '-'}
                                                     </td>
                                                 </tr>
                                             ),
