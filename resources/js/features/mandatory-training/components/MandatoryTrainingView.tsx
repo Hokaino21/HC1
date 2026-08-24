@@ -7,6 +7,8 @@ import { groupEmployeesForMandatoryTraining, getSkpExpiryStatus } from '@/featur
 import { PlaceholderPanel } from '@/features/shared/components/PlaceholderPanel';
 import { SkpExpiryCell } from '@/features/shared/components/SkpExpiryCell';
 import { DownloadIcon, EyeIcon, PlusIcon, PencilIcon, TrashIcon, CloseIcon } from '@/features/shared/components/icons';
+import { useToast } from '@/features/shared/components/Toast';
+import { ConfirmDialog } from '@/features/shared/components/ConfirmDialog';
 
 const mandatoryTrainingBaseColumns = [
     'No',
@@ -54,9 +56,17 @@ export default function MandatoryTrainingView({
     const [editClassCategory, setEditClassCategory] = useState('');
     const [isUpdatingClass, setIsUpdatingClass] = useState(false);
 
+    // Modal state for Delete Class Confirmation
+    const [deleteClassConfirm, setDeleteClassConfirm] = useState<{
+        id: number;
+        name: string;
+    } | null>(null);
+
     // Loading states for actions
     const [isDeletingClassId, setIsDeletingClassId] = useState<number | null>(null);
     const [movingEmployeeId, setMovingEmployeeId] = useState<number | null>(null);
+
+    const toast = useToast();
 
     const filteredEmployees = useMemo(() => {
         let filtered = employees;
@@ -168,13 +178,24 @@ export default function MandatoryTrainingView({
             return;
         }
 
+        const targetClass = classes.find((c) => c.id === targetClassId);
+        const targetName = targetClass?.name ?? 'kelas tujuan';
+
         setMovingEmployeeId(employeeId);
+        const toastId = toast.loading(`Memindahkan peserta ke ${targetName}...`);
+
         router.put(
             moveToClass.url({ employee: employeeId }),
             { mandatory_training_class_id: targetClassId },
             {
                 preserveScroll: true,
                 preserveState: true,
+                onSuccess: () => {
+                    toast.update(toastId, {
+                        message: `Peserta berhasil dipindahkan ke ${targetName}.`,
+                        type: 'success',
+                    });
+                },
                 onFinish: () => {
                     setMovingEmployeeId(null);
                 },
@@ -183,7 +204,10 @@ export default function MandatoryTrainingView({
                         errors.mandatory_training_class_id ||
                         Object.values(errors)[0] ||
                         'Gagal memindahkan peserta.';
-                    alert(message);
+                    toast.update(toastId, {
+                        message: String(message),
+                        type: 'error',
+                    });
                 },
             },
         );
@@ -191,16 +215,19 @@ export default function MandatoryTrainingView({
 
     function handleCreateClass(e: React.FormEvent) {
         e.preventDefault();
-        if (!newClassName.trim()) {
-            alert('Nama kelas harus diisi.');
+        const trimmedName = newClassName.trim();
+        if (!trimmedName) {
+            toast.error('Nama kelas harus diisi.');
             return;
         }
 
         setIsCreatingClass(true);
+        const toastId = toast.loading(`Menyimpan kelas "${trimmedName}"...`);
+
         router.post(
             storeClass.url(),
             {
-                name: newClassName.trim(),
+                name: trimmedName,
                 function_category: newClassCategory.trim() || null,
             },
             {
@@ -210,6 +237,10 @@ export default function MandatoryTrainingView({
                     setIsCreateModalOpen(false);
                     setNewClassName('');
                     setNewClassCategory('');
+                    toast.update(toastId, {
+                        message: `Kelas "${trimmedName}" berhasil ditambahkan.`,
+                        type: 'success',
+                    });
                 },
                 onFinish: () => {
                     setIsCreatingClass(false);
@@ -220,7 +251,10 @@ export default function MandatoryTrainingView({
                         errors.function_category ||
                         Object.values(errors)[0] ||
                         'Gagal menambahkan kelas.';
-                    alert(message);
+                    toast.update(toastId, {
+                        message: String(message),
+                        type: 'error',
+                    });
                 },
             },
         );
@@ -242,16 +276,19 @@ export default function MandatoryTrainingView({
 
     function handleUpdateClass(e: React.FormEvent) {
         e.preventDefault();
-        if (!editingClass || !editClassName.trim()) {
-            alert('Nama kelas harus diisi.');
+        const trimmedName = editClassName.trim();
+        if (!editingClass || !trimmedName) {
+            toast.error('Nama kelas harus diisi.');
             return;
         }
 
         setIsUpdatingClass(true);
+        const toastId = toast.loading('Memperbarui nama kelas...');
+
         router.put(
             updateClass.url({ mandatoryTrainingClass: editingClass.id }),
             {
-                name: editClassName.trim(),
+                name: trimmedName,
                 function_category: editClassCategory.trim() || null,
             },
             {
@@ -259,6 +296,10 @@ export default function MandatoryTrainingView({
                 preserveState: true,
                 onSuccess: () => {
                     setEditingClass(null);
+                    toast.update(toastId, {
+                        message: `Kelas berhasil diubah menjadi "${trimmedName}".`,
+                        type: 'success',
+                    });
                 },
                 onFinish: () => {
                     setIsUpdatingClass(false);
@@ -269,7 +310,10 @@ export default function MandatoryTrainingView({
                         errors.function_category ||
                         Object.values(errors)[0] ||
                         'Gagal memperbarui kelas.';
-                    alert(message);
+                    toast.update(toastId, {
+                        message: String(message),
+                        type: 'error',
+                    });
                 },
             },
         );
@@ -277,20 +321,34 @@ export default function MandatoryTrainingView({
 
     function handleDeleteClass(classId: number, className: string, currentCount: number) {
         if (currentCount > 0) {
-            alert(`Kelas "${className}" tidak bisa dihapus karena masih memiliki ${currentCount} peserta.`);
+            toast.error(`Kelas "${className}" tidak bisa dihapus karena masih memiliki ${currentCount} peserta.`);
             return;
         }
 
-        if (!window.confirm(`Apakah Anda yakin ingin menghapus kelas "${className}"? Data karyawan tidak akan terhapus.`)) {
+        setDeleteClassConfirm({ id: classId, name: className });
+    }
+
+    function confirmDeleteClass() {
+        if (!deleteClassConfirm) {
             return;
         }
 
-        setIsDeletingClassId(classId);
+        const { id, name } = deleteClassConfirm;
+        setIsDeletingClassId(id);
+        const toastId = toast.loading(`Menghapus kelas "${name}"...`);
+
         router.delete(
-            destroyClass.url({ mandatoryTrainingClass: classId }),
+            destroyClass.url({ mandatoryTrainingClass: id }),
             {
                 preserveScroll: true,
                 preserveState: true,
+                onSuccess: () => {
+                    setDeleteClassConfirm(null);
+                    toast.update(toastId, {
+                        message: `Kelas "${name}" berhasil dihapus.`,
+                        type: 'success',
+                    });
+                },
                 onFinish: () => {
                     setIsDeletingClassId(null);
                 },
@@ -299,7 +357,10 @@ export default function MandatoryTrainingView({
                         errors.class ||
                         Object.values(errors)[0] ||
                         'Gagal menghapus kelas.';
-                    alert(message);
+                    toast.update(toastId, {
+                        message: String(message),
+                        type: 'error',
+                    });
                 },
             },
         );
@@ -359,7 +420,7 @@ export default function MandatoryTrainingView({
         );
 
         if (selectedEmployees.length === 0) {
-            alert('Pilih minimal satu karyawan untuk dipreview');
+            toast.info('Pilih minimal satu karyawan untuk dipreview.');
             return;
         }
 
@@ -378,6 +439,7 @@ export default function MandatoryTrainingView({
             return;
         }
 
+        toast.success('Mengunduh dokumen PDF...');
         submitMandatoryTrainingExport(previewData);
         setPreviewData(null);
     }
@@ -926,6 +988,19 @@ export default function MandatoryTrainingView({
                     </div>
                 </div>
             ) : null}
+
+            {/* Modal: Konfirmasi Hapus Kelas */}
+            <ConfirmDialog
+                isOpen={deleteClassConfirm !== null}
+                title="Hapus Kelas"
+                message={`Apakah Anda yakin ingin menghapus kelas "${deleteClassConfirm?.name}"? Data karyawan tidak akan terhapus.`}
+                confirmLabel="Ya, Hapus Kelas"
+                cancelLabel="Batal"
+                variant="danger"
+                isLoading={isDeletingClassId !== null}
+                onConfirm={confirmDeleteClass}
+                onCancel={() => setDeleteClassConfirm(null)}
+            />
         </section>
     );
 }

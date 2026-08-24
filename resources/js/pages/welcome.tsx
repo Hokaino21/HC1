@@ -18,6 +18,7 @@ import { DashboardView } from '@/features/dashboard';
 import { MandatoryTrainingView } from '@/features/mandatory-training';
 import { TemplateLetterView } from '@/features/template-letter';
 import { EmployeeDataView } from '@/features/employee';
+import { ToastProvider } from '@/features/shared/components/Toast';
 
 
 const navigationItems: NavigationItem[] = [
@@ -66,7 +67,7 @@ export default function Welcome({
     }
 
     return (
-        <>
+        <ToastProvider>
             <Head title="Injourney Airports" />
 
             <div className="flex h-screen w-full overflow-hidden bg-white text-slate-800">
@@ -164,6 +165,6 @@ export default function Welcome({
                     </div>
                 </main>
             </div>
-        </>
+        </ToastProvider>
     );
 }

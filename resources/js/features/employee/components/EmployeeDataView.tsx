@@ -5,6 +5,7 @@ import { store, update, destroy, downloadTemplate } from '@/actions/App/Http/Con
 import { UploadIcon, TrashIcon, PencilIcon, ArchiveIcon, CloseIcon, AlertTriangleIcon, DownloadIcon } from '@/features/shared/components/icons';
 import { SkpExpiryCell } from '@/features/shared/components/SkpExpiryCell';
 import { parseLocalDate, getSkpExpiryStatus } from '@/features/shared/utils';
+import { useToast } from '@/features/shared/components/Toast';
 
 const employeeDocumentColumns: EmployeeDocumentColumn[] = [
     { key: 'photo_jpg', label: 'Pas Foto' },
@@ -100,6 +101,8 @@ export default function EmployeeDataView({
         () => new Set(),
     );
     const [tableScrollWidth, setTableScrollWidth] = useState(2200);
+
+    const toast = useToast();
 
     useEffect(() => {
         function updateTableScrollWidth() {
@@ -229,10 +232,23 @@ export default function EmployeeDataView({
 
     function confirmDeleteSelected() {
         const employeeIds = Array.from(checkedEmployeeIds);
+        const toastId = toast.loading(`Menghapus ${employeeIds.length} data karyawan...`);
         employeeIds.forEach((id) => {
             router.delete(destroy.url(id), {
                 preserveScroll: true,
                 preserveState: true,
+                onSuccess: () => {
+                    toast.update(toastId, {
+                        message: 'Data karyawan terpilih berhasil dihapus.',
+                        type: 'success',
+                    });
+                },
+                onError: () => {
+                    toast.update(toastId, {
+                        message: 'Gagal menghapus data karyawan terpilih.',
+                        type: 'error',
+                    });
+                },
             });
         });
         setCheckedEmployeeIds(new Set());
@@ -255,9 +271,24 @@ export default function EmployeeDataView({
             return;
         }
 
+        const employeeName = deleteConfirm.employee.name;
+        const toastId = toast.loading(`Menghapus data "${employeeName}"...`);
+
         router.delete(destroy.url(deleteConfirm.employee.id), {
             preserveScroll: true,
             preserveState: true,
+            onSuccess: () => {
+                toast.update(toastId, {
+                    message: `Data "${employeeName}" berhasil dihapus.`,
+                    type: 'success',
+                });
+            },
+            onError: () => {
+                toast.update(toastId, {
+                    message: `Gagal menghapus data "${employeeName}".`,
+                    type: 'error',
+                });
+            },
         });
         setDeleteConfirm(null);
     }
@@ -467,6 +498,13 @@ export default function EmployeeDataView({
     function submitUpload(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
 
+        if (!uploadForm.data.employees_file) {
+            toast.error('Pilih file Excel terlebih dahulu.');
+            return;
+        }
+
+        const toastId = toast.loading('Mengunggah file Excel karyawan...');
+
         uploadForm.post(store.url(), {
             forceFormData: true,
             preserveScroll: true,
@@ -474,6 +512,20 @@ export default function EmployeeDataView({
             onSuccess: () => {
                 uploadForm.reset('employees_file');
                 setUploadInputKey((key) => key + 1);
+                toast.update(toastId, {
+                    message: 'Data karyawan berhasil diunggah dan diproses.',
+                    type: 'success',
+                });
+            },
+            onError: (errors) => {
+                const message =
+                    errors.employees_file ||
+                    Object.values(errors)[0] ||
+                    'Gagal mengunggah file karyawan.';
+                toast.update(toastId, {
+                    message: String(message),
+                    type: 'error',
+                });
             },
         });
     }
@@ -591,11 +643,27 @@ export default function EmployeeDataView({
             return;
         }
 
+        const employeeName = editingEmployee.name;
+        const toastId = toast.loading(`Menyimpan perubahan data "${employeeName}"...`);
+
         editForm.put(update.url(editingEmployee.id), {
             preserveScroll: true,
             preserveState: true,
             onSuccess: () => {
                 closeEditModal();
+                toast.update(toastId, {
+                    message: `Data "${employeeName}" berhasil diperbarui.`,
+                    type: 'success',
+                });
+            },
+            onError: (errors) => {
+                const message =
+                    Object.values(errors)[0] ||
+                    `Gagal memperbarui data "${employeeName}".`;
+                toast.update(toastId, {
+                    message: String(message),
+                    type: 'error',
+                });
             },
         });
     }
